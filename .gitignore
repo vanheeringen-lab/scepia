@@ -1,0 +1,16 @@
+# Files
+*.pyc
+*.so
+*.swp
+*egg-info
+*egg
+.cache
+.pytest_cache
+
+# Directories
+.vscode
+build
+dist
+eggs
+tmp
+docs/_build
