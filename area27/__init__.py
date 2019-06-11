@@ -156,7 +156,7 @@ def link_it_up(outfile, signal, meanstd_file=None, genes_file=None, names_file=N
     link = link.sort_values("contrib", ascending=False)[["gene", "loc", "contrib"]]
     link = link.groupby(["gene", "loc"]).first().reset_index().groupby("gene").sum()[["contrib"]]
     link = link.join(ens2name).dropna().set_index("name")
-    sys.stderr.write(f"Writing output file #{outfile}\n")
+    sys.stderr.write(f"Writing output file {outfile}\n")
     link.to_csv(outfile, sep="\t")
 
 def generate_signal(bam_file, window, meanstd_file=None, target_file=None, nthreads=4):
