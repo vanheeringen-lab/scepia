@@ -43,5 +43,6 @@ setup (
         install_requires = [
             "pandas",
             "biofluff",
+            "xdg",
         ],
 )
