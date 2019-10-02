@@ -51,6 +51,8 @@ infer_motifs(adata, data_dir="/path/to/ENCODE_dir")
 
 ### Determine enhancer-based regulatory potential
 
+The approach to determine the enhancer-based regulatory potential (ERP) score per gene is based on the approach developed by [Wang et al., 2016](https://dx.doi.org/10.1101%2Fgr.201574.115). There is one difference, in this approach the score is calculates based only on H3K27ac signal in enhancers. We use log-transformed, z-score normalized H3K27ac read counts in 2kb windows centered at enhancer locations. The ERP score is used to match single cell RNA-seq data to the reference H3K27ac profiles.
+
 To use, an H3K27ac BAM file is needed (mapped to hg38). The `-N` argument
 specifies the number of threads to use.
 
