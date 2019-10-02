@@ -34,6 +34,7 @@ conda activate area27
 The [scanpy](https://github.com/theislab/scanpy) package is essential to use area27. Single cell data should be loaded in an [AnnData](https://anndata.readthedocs.io/en/latest/anndata.AnnData.html) object.
 Make sure of the following:
 
+* Gene names are used in `adata.var_names`, not Ensembl identifiers or any other gene identifiers.
 * `adata.raw` stores the raw, log-transformed single cell expression data.
 * The main `adata` object is filtered to contain only hypervariable genes.
 * Louvain clustering has been run.
