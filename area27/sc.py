@@ -13,6 +13,7 @@ from sklearn.preprocessing import scale
 from collections import Counter
 from gimmemotifs.motif import read_motifs
 from gimmemotifs.moap import moap
+from gimmemotifs.maelstrom import run_maelstrom
 from gimmemotifs.utils import pwmfile_location
 from statsmodels.stats.multitest import multipletests
 from tqdm import tqdm
@@ -266,7 +267,7 @@ def change_region_size(series, size=200):
     return loc[0] + ":" + loc["start"] + "-" + loc["end"]
 
 
-def infer_motifs(adata, data_dir, pfm=None, min_annotated=50):
+def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, maelstrom=False):
     """Infer motif ativity for single cell RNA-seq data.
 
     The adata object is modified with the following fields.
@@ -346,14 +347,26 @@ def infer_motifs(adata, data_dir, pfm=None, min_annotated=50):
     # motif_act = pd.read_csv("k27ac.maelstrom.out/activity.bayesianridge.score.out.txt", sep="\t", index_col=0, comment="#")
     pfm = pwmfile_location(pfm)
     adata.uns["motif"]["pfm"] = pfm
-    motif_act = moap(
-        fname,
-        scoring="score",
-        genome="hg38",
-        method="bayesianridge",
-        pwmfile=pfm,
-        ncpus=12,
-    )
+    
+    
+    if maelstrom:
+        run_maelstrom(
+            fname,
+            "hg38",
+            "tmp.lala",
+            methods=["bayesianridge", "lightningregressor", "xgboost"]
+        )
+
+        motif_act = pd.read_csv(os.path.join("tmp.lala", "final.out.csv"), sep="\t", comment="#")
+    else:
+        motif_act = moap(
+            fname,
+            scoring="score",
+            genome="hg38",
+            method="bayesianridge",
+            pwmfile=pfm,
+            ncpus=12,
+        )
 
     adata.uns["motif"]["motif_activity"] = motif_act[adata.uns["motif"]["cell_types"]]
     print("annotating cells")
