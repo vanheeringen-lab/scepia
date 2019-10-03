@@ -1,6 +1,8 @@
 import os
 import sys
+import shutil
 from tempfile import NamedTemporaryFile
+import tarfile
 
 import numpy as np
 import pandas as pd
@@ -17,7 +19,10 @@ from gimmemotifs.maelstrom import run_maelstrom
 from gimmemotifs.utils import pwmfile_location
 from statsmodels.stats.multitest import multipletests
 from tqdm import tqdm
+from appdirs import user_cache_dir
+import urllib.request
 
+CACHE_DIR = os.path.join(user_cache_dir("area27"))
 
 def motif_mapping(pfm=None, genes=None, indirect=True):
     """Read motif annotation and return as DataFrame.
@@ -487,3 +492,40 @@ def reassign_cell_types(adata, min_annotated=50):
     adata.obs.loc[
         ~adata.obs["cell_annotation"].isin(valid), "cell_annotation"
     ] = "other"
+
+def locate_data(dataset, version=None):
+    for datadir in [os.path.expanduser(dataset), os.path.join(CACHE_DIR, dataset)]:
+        if os.path.isdir(datadir):
+            if os.path.exists(os.path.join(datadir, "info.yaml")):
+                return datadir
+            else:
+                raise ValueError(f"info.yaml not found in directory {datadir}")
+
+    # Data file can not be found
+    df = pd.read_table("data/data_directory.txt", sep="\t")
+    df = df[df["name"] == dataset]
+    if df.shape[0] > 0:
+        if version is None:
+            url = df.sort_values("version").tail(1)["url"].values[0]
+        else:
+            try:
+                url = df.loc[df["version"] == version]["url"].values[0]
+            except:
+                raise ValueError(f"Dataset {dataset} with version {version} not found.")
+        datadir = os.path.join(CACHE_DIR, dataset)
+        os.mkdir(datadir)
+        datafile = os.path.join(datadir, os.path.split(url)[-1])
+        sys.stdout.write(f"Downloading {dataset} data files to {datadir}...\n")
+        with urllib.request.urlopen(url) as response, open(datafile, 'wb') as outfile:
+            shutil.copyfileobj(response, outfile)
+        
+        sys.stdout.write("Extracting files...\n")
+        tf = tarfile.open(datafile)
+        tf.extractall(datadir)
+        os.unlink(datafile)
+
+        return datadir
+    else:
+        raise ValueError(f"Dataset {dataset} not found.")
+
+         
