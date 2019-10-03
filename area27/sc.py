@@ -19,24 +19,24 @@ from statsmodels.stats.multitest import multipletests
 from tqdm import tqdm
 
 
-def get_motif_mapping(pfm=None, genes=None, indirect=True):
+def motif_mapping(pfm=None, genes=None, indirect=True):
     """Read motif annotation and return as DataFrame.
 
     Parameters
     ----------
-    pfm : str, optional
+    pfm : `str`, optional
         Name of pfm file. Should have an associated file with mapping from
         motif to factors, with the .motif2factors.txt extension.
-    genes : list, optional
+    genes : `list`, optional
         List of gene names to include. If None all genes will be included.
-    indirect : boolean, optional
+    indirect : `boolean`, optional
         Include indirect factors in the annotation. Default True. If set to
         False only factors for which there is direct evidence will be
         used.
 
     Returns
     -------
-    pd.DatafFrame
+    `pd.DataFrame`
         DataFrame with motif names as index and an associated column with TFs
         that bind to the motifs.
     """
@@ -191,7 +191,33 @@ def annotate_with_k27(
     )
 
 
-def get_relevant_cell_types(adata, gene_df):
+def relevant_cell_types(adata, gene_df, n_top_genes, cv=5):
+    """Select relevant cell types for annotation and motif inference.
+
+    Based on Multitask Lasso regression a subset of features (cell type 
+    profile) will be selected. Expression is averaged over louvain clusters
+    and selected features are forced to be the same over all clusters.
+    Requires louvain clustering to be run on the `adata` object.
+
+    Parameters
+    ----------
+    adata : :class:`~anndata.AnnData`
+        Annotated data matrix.
+    gene_df : :class:`pandas.DataFrame`
+        Gene-based reference data.
+    n_top_genes : `int`, optional (default: 1000)
+        Number of variable genes is used. If `n_top_genes` is greater than the
+        number of hypervariable genes in `adata` then all variable genes are 
+        used.
+    cv : `int`, optional (default: 5)
+        Folds for cross-validation.
+
+    Returns
+    -------
+    `list`
+        Cell types ordered by the mean absolute coefficient over clusters in 
+        descending order.
+    """
     print("selecting reference cell types")
     common_genes = list(gene_df.index[gene_df.index.isin(adata.var_names)])
     expression = pd.DataFrame(adata.X, index=adata.obs_names, columns=adata.var_names).T
@@ -200,11 +226,11 @@ def get_relevant_cell_types(adata, gene_df):
     expression = expression.groupby(expression.columns, axis=1).mean()
 
     var_genes = (
-        adata.var.loc[common_genes, "dispersions_norm"].sort_values().tail(1000).index
+        adata.var.loc[common_genes, "dispersions_norm"].sort_values().tail(n_top_genes).index
     )
     expression = expression.loc[var_genes]
     X = gene_df.loc[var_genes]
-    g = MultiTaskLassoCV(cv=5, n_jobs=24, selection="random")
+    g = MultiTaskLassoCV(cv=cv, n_jobs=24, selection="random")
     g.fit(X, expression)
     bla = (
         pd.DataFrame(g.coef_, index=expression.columns, columns=X.columns)
@@ -267,7 +293,7 @@ def change_region_size(series, size=200):
     return loc[0] + ":" + loc["start"] + "-" + loc["end"]
 
 
-def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, maelstrom=False):
+def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, num_enhancers=10000, maelstrom=False):
     """Infer motif ativity for single cell RNA-seq data.
 
     The adata object is modified with the following fields.
@@ -290,8 +316,11 @@ def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, maelstrom=False):
     min_annotated : `int`, optional (default: 50)
         Cells that are annotated with cell types less than this number will be
         annotated as "other".
+    num_enhancers : `int`, optional (default: 10000)
+        Number of enhancers to use for motif activity analysis. 
+    maelstrom : `boolean`, optional (default: False)
+        Use maelstrom instead of ridge regression for motif activity analysis.
     """
-    num_enhancers = 10000
 
     use_name = True
 
@@ -313,7 +342,7 @@ def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, maelstrom=False):
     # Determine relevant reference cell types.
     # All other cell types will not be used for motif activity and
     # cell type annotation.
-    cell_types = get_relevant_cell_types(adata, gene_df)
+    cell_types = relevant_cell_types(adata, gene_df)
     adata.uns["motif"]["cell_types"] = cell_types
 
     print("linking variable genes to enhancers")
@@ -342,9 +371,6 @@ def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, maelstrom=False):
     enhancer_df.to_csv(fname, sep="\t")
     print("inferring motif activity")
 
-    #!rm -rf k27ac.maelstrom.out && gimme maelstrom k27ac_cell_type_table.txt hg38 k27ac.maelstrom.out -m bayesianridge
-
-    # motif_act = pd.read_csv("k27ac.maelstrom.out/activity.bayesianridge.score.out.txt", sep="\t", index_col=0, comment="#")
     pfm = pwmfile_location(pfm)
     adata.uns["motif"]["pfm"] = pfm
     
@@ -402,8 +428,19 @@ def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, maelstrom=False):
     )
     adata.obs = adata.obs.join(cell_motif_activity)
 
+    correlate_tf_motifs(adata)
+
+
+def correlate_tf_motifs(adata):
+    """Correlate inferred motif activity with TF expression.
+
+    Parameters
+    ----------
+    adata : :class:`~anndata.AnnData`
+        Annotated data matrix.
+    """
     print("correlating TFs with motifs")
-    m2f = get_motif_mapping()
+    m2f = motif_mapping()
     if issparse(adata.raw.X):
         expression = pd.DataFrame(
             adata.raw.X.todense(), index=adata.obs_names, columns=adata.raw.var_names
@@ -428,9 +465,13 @@ def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, maelstrom=False):
     cor = pd.DataFrame(cor, columns=["motif", "factor", "corr", "pval"])
     cor["padj"] = multipletests(cor["pval"], method="fdr_bh")[1]
     cor["abscorr"] = np.abs(cor["corr"])
+    
+    # Determine putative roles of TF based on sign of correlation coefficient.
+    # This will not always be correct, as many factors have a high correlation
+    # with more than one motif, both positive and negative. In that case it's
+    # hard to assign a role.
     cor["putative_role"] = "activator"
     cor.loc[(cor["corr"] + cor["abscorr"]) < 1e-6, "putative_role"] = "repressor"
-    # motif_corr = motif_corr.sort_values("abscorr").drop_duplicates(subset=['factor', 'role'],keep="last").set_index('factor').sort_values('abscorr')
     adata.uns["motif"]["factor2motif"] = cor
 
 
