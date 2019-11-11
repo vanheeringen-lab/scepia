@@ -3,26 +3,81 @@ import sys
 import shutil
 from tempfile import NamedTemporaryFile
 import tarfile
+from typing import Optional
+from typing import List
 
+from anndata import AnnData
 import numpy as np
 import pandas as pd
 from scipy.sparse import issparse
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr, percentileofscore
 from yaml import load
-from sklearn.linear_model import MultiTaskLassoCV,BayesianRidge,LogisticRegression
+from sklearn.linear_model import MultiTaskLassoCV
+from sklearn.linear_model import (  # noqa: F401
+    BayesianRidge,
+    LogisticRegression,
+    LassoCV,
+)
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import scale
+from sklearn.utils import shuffle
+import scanpy.api as sc
+
 from collections import Counter
 from gimmemotifs.motif import read_motifs
 from gimmemotifs.moap import moap
 from gimmemotifs.maelstrom import run_maelstrom
-from gimmemotifs.utils import pwmfile_location
+from gimmemotifs.utils import pfmfile_location
 from statsmodels.stats.multitest import multipletests
 from tqdm import tqdm
 from appdirs import user_cache_dir
 import urllib.request
+from multiprocessing import Pool
+from gimmemotifs.rank import rankagg
+import seaborn as sns
+from adjustText import adjust_text
+import matplotlib.pyplot as plt
 
 CACHE_DIR = os.path.join(user_cache_dir("area27"))
+expression = None
+f_and_m = None
+_corr_adata = None
+
+
+class MotifAnnData(AnnData):
+    def __init__(self, adata):
+        super().__init__(adata)
+
+    def write(self, *args, **kwargs):
+        self.obs = self.obs.drop(columns=self.uns["motif"]["motif_activity"].index)
+        print("converting to dict")
+        for k in ["motif_activity", "factor2motif", "correlation"]:
+            self.uns['motif'][k] = self.uns['motif'][k].to_dict()
+        print("writing")
+        super().write(*args, **kwargs)
+        print("done")
+
+
+def read(filename):
+    print("reading")
+    adata = MotifAnnData(sc.read(filename))
+    print("done")
+    print("converting")
+    for k in ["motif_activity", "factor2motif", "correlation"]:
+        adata.uns['motif'][k] = pd.DataFrame(adata.uns['motif'][k])
+
+    cell_motif_activity = pd.DataFrame(
+             adata.uns["motif"]["motif_activity"] @ adata.obsm["X_cell_types"].T
+         ).T
+    cell_motif_activity.index = adata.obs_names
+
+    adata.obs = adata.obs.drop(
+        columns=cell_motif_activity.columns.intersection(adata.obs.columns)
+    )
+    adata.obs = adata.obs.join(cell_motif_activity)
+    print("done")
+    return adata
+
 
 def motif_mapping(pfm=None, genes=None, indirect=True):
     """Read motif annotation and return as DataFrame.
@@ -108,13 +163,8 @@ def annotate_with_k27(
 ):
     """Annotate single cell data.
     """
-    # Compute neighborhood graph
-
-    # sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=40)
-    # neighbors = pd.DataFrame(adata.uns['neighbors']['connectivities'].todense())
-
     # Only use genes that overlap
-    common_genes = adata.var_names[adata.var_names.isin(gene_df.index)].unique()
+    common_genes = adata.var_names.intersection(gene_df.index).unique()
     # print(common_genes)
     # Create expression DataFrame based on common genes
     if use_raw:
@@ -149,45 +199,47 @@ def annotate_with_k27(
         idxs.extend(idx)
 
     X = gene_df.loc[common_genes]
-    l = getattr(sys.modules[__name__], model)()
+    model = getattr(sys.modules[__name__], model)()
     kf = KFold(n_splits=5)
 
     result = []
     df_coef = pd.DataFrame(index=gene_df.columns)
-    for i in tqdm(idxs):
-        if use_neighbors:
-            my_neighbors = (
-                pd.DataFrame(
-                    (adata.uns["neighbors"]["connectivities"][i] != 0).todense()
+    with tqdm(total=len(idxs), file=sys.stdout) as pbar:
+        for i in idxs:
+            if use_neighbors:
+                my_neighbors = (
+                    pd.DataFrame(
+                        (adata.uns["neighbors"]["connectivities"][i] != 0).todense()
+                    )
+                    .iloc[0]
+                    .values
                 )
-                .iloc[0]
-                .values
-            )
-            y = expression.loc[:, my_neighbors].mean(1)
-        else:
-            y = expression.iloc[:, i]
-
-        if subsample:
-            cts = []
-            for _, idx in kf.split(X):
-                l.fit(X.iloc[idx], y[idx])
-                coef = pd.DataFrame(l.coef_, index=gene_df.columns)
-                ct = coef.sort_values(0).tail(1).index[0]
-                cts.append(ct)
-            # df_coef[i] = 0
-            top_ct = Counter(cts).most_common()[0][0]
-            df_coef[i] = pd.DataFrame.from_dict(Counter(cts), orient="index")
-            df_coef[i] = df_coef[i].fillna(0)
-        else:
-            l.fit(X, y)
-            if model == "LogisticRegression":
-                coef = pd.DataFrame(l.coef_[0], index=gene_df.columns)
+                y = expression.loc[:, my_neighbors].mean(1)
             else:
-                coef = pd.DataFrame(l.coef_, index=gene_df.columns)
-            df_coef[i] = coef[0]
-            top_ct = coef.sort_values(0).tail(1).index[0]
-        # print("{}\t{}".format(top_ct, adata.obs['cell_type'].iloc[i]), coef.sort_values(0).tail(5).index)
-        result.append([top_ct])
+                y = expression.iloc[:, i]
+
+            if subsample:
+                cts = []
+                for _, idx in kf.split(X):
+                    model.fit(X.iloc[idx], y[idx])
+                    coef = pd.DataFrame(model.coef_, index=gene_df.columns)
+                    ct = coef.sort_values(0).tail(1).index[0]
+                    cts.append(ct)
+                # df_coef[i] = 0
+                top_ct = Counter(cts).most_common()[0][0]
+                df_coef[i] = pd.DataFrame.from_dict(Counter(cts), orient="index")
+                df_coef[i] = df_coef[i].fillna(0)
+            else:
+                model.fit(X, y)
+                if model == "LogisticRegression":
+                    coef = pd.DataFrame(model.coef_[0], index=gene_df.columns)
+                else:
+                    coef = pd.DataFrame(model.coef_, index=gene_df.columns)
+                df_coef[i] = coef[0]
+                top_ct = coef.sort_values(0).tail(1).index[0]
+            # print("{}\t{}".format(top_ct, adata.obs['cell_type'].iloc[i]), coef.sort_values(0).tail(5).index)
+            result.append([top_ct])
+            pbar.update(1)
 
     df_coef = df_coef[sorted(df_coef.columns)]
     return (
@@ -196,10 +248,12 @@ def annotate_with_k27(
     )
 
 
-def relevant_cell_types(adata, gene_df, n_top_genes, cv=5):
+def relevant_cell_types(
+    adata: AnnData, gene_df: pd.DataFrame, n_top_genes: int = 1000, cv: int = 5
+) -> List[str]:
     """Select relevant cell types for annotation and motif inference.
 
-    Based on Multitask Lasso regression a subset of features (cell type 
+    Based on Multitask Lasso regression a subset of features (cell type
     profile) will be selected. Expression is averaged over louvain clusters
     and selected features are forced to be the same over all clusters.
     Requires louvain clustering to be run on the `adata` object.
@@ -212,7 +266,7 @@ def relevant_cell_types(adata, gene_df, n_top_genes, cv=5):
         Gene-based reference data.
     n_top_genes : `int`, optional (default: 1000)
         Number of variable genes is used. If `n_top_genes` is greater than the
-        number of hypervariable genes in `adata` then all variable genes are 
+        number of hypervariable genes in `adata` then all variable genes are
         used.
     cv : `int`, optional (default: 5)
         Folds for cross-validation.
@@ -220,7 +274,7 @@ def relevant_cell_types(adata, gene_df, n_top_genes, cv=5):
     Returns
     -------
     `list`
-        Cell types ordered by the mean absolute coefficient over clusters in 
+        Cell types ordered by the mean absolute coefficient over clusters in
         descending order.
     """
     print("selecting reference cell types")
@@ -231,7 +285,10 @@ def relevant_cell_types(adata, gene_df, n_top_genes, cv=5):
     expression = expression.groupby(expression.columns, axis=1).mean()
 
     var_genes = (
-        adata.var.loc[common_genes, "dispersions_norm"].sort_values().tail(n_top_genes).index
+        adata.var.loc[common_genes, "dispersions_norm"]
+        .sort_values()
+        .tail(n_top_genes)
+        .index
     )
     expression = expression.loc[var_genes]
     X = gene_df.loc[var_genes]
@@ -256,9 +313,7 @@ def relevant_cell_types(adata, gene_df, n_top_genes, cv=5):
 
 
 def validate_adata(adata):
-    try:
-        adata.raw
-    except:
+    if adata.raw is None:
         raise ValueError("Please save the raw expression data in the .raw property.")
 
     if "neighbors" not in adata.uns or "louvain" not in adata.obs:
@@ -280,15 +335,17 @@ def load_reference_data(config, data_dir):
     )
 
     # H3K27ac signal summarized per gene
-    gene_df = read_enhancer_data(fname_genes, anno_fname=anno_fname, anno_to=anno_to)
+    gene_df = read_enhancer_data(
+        fname_genes, anno_fname=anno_fname, anno_to=anno_to, anno_from=anno_from
+    )
     return enhancer_df, gene_df
 
 
 def change_region_size(series, size=200):
     if not isinstance(series, pd.Series):
-        try:
+        if hasattr(series, "to_series"):
             series = series.to_series()
-        except:
+        else:
             series = pd.Series(series)
 
     loc = series.str.split("[:-]", expand=True)
@@ -298,7 +355,14 @@ def change_region_size(series, size=200):
     return loc[0] + ":" + loc["start"] + "-" + loc["end"]
 
 
-def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, num_enhancers=10000, maelstrom=False):
+def infer_motifs(
+    adata: AnnData,
+    dataset: str,
+    pfm: Optional[str] = None,
+    min_annotated: int = 50,
+    num_enhancers: int = 10000,
+    maelstrom: bool = False,
+) -> None:
     """Infer motif ativity for single cell RNA-seq data.
 
     The adata object is modified with the following fields.
@@ -310,11 +374,11 @@ def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, num_enhancers=1000
     ----------
     adata : :class:`~anndata.AnnData`
         Annotated data matrix.
-    data_dir : `str`
-        Directory with reference data.
+    dataset : `str`
+        Name of reference data set or directory with reference data.
     pfm : `str`, optional (default: None)
         Name of motif file in PFM format. The GimmeMotifs default is used
-        if this parameter is not specified. This can be a filename, or a 
+        if this parameter is not specified. This can be a filename, or a
         pfm name support by GimmeMotifs such as `JASPAR2018_vertebrates`.
         If a custom PFM file is specified, there should also be an associated
         `.motif2factors.txt` file.
@@ -322,7 +386,7 @@ def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, num_enhancers=1000
         Cells that are annotated with cell types less than this number will be
         annotated as "other".
     num_enhancers : `int`, optional (default: 10000)
-        Number of enhancers to use for motif activity analysis. 
+        Number of enhancers to use for motif activity analysis.
     maelstrom : `boolean`, optional (default: False)
         Use maelstrom instead of ridge regression for motif activity analysis.
     """
@@ -330,6 +394,8 @@ def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, num_enhancers=1000
     use_name = True
 
     validate_adata(adata)
+
+    data_dir = locate_data(dataset)
 
     with open(os.path.join(data_dir, "info.yaml")) as f:
         config = load(f)
@@ -372,23 +438,28 @@ def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, num_enhancers=1000
     ]
     # Center by mean
     enhancer_df = enhancer_df.sub(enhancer_df.mean(1), axis=0)
-    fname = NamedTemporaryFile().name
+    fname = NamedTemporaryFile(delete=False).name
+    print(f"enhancer filename: {fname}")
     enhancer_df.to_csv(fname, sep="\t")
     print("inferring motif activity")
 
-    pfm = pwmfile_location(pfm)
+    pfm = pfmfile_location(pfm)
     adata.uns["motif"]["pfm"] = pfm
-    
-    
+
     if maelstrom:
         run_maelstrom(
             fname,
             "hg38",
             "tmp.lala",
-            methods=["bayesianridge", "lightningregressor", "xgboost"]
+            methods=["bayesianridge", "lightningregressor", "xgboost"],
         )
 
-        motif_act = pd.read_csv(os.path.join("tmp.lala", "final.out.csv"), sep="\t", comment="#")
+        motif_act = pd.read_csv(
+            os.path.join("tmp.lala", "final.out.csv"),
+            sep="\t",
+            comment="#",
+            index_col=0,
+        )
     else:
         motif_act = moap(
             fname,
@@ -435,8 +506,10 @@ def infer_motifs(adata, data_dir, pfm=None, min_annotated=50, num_enhancers=1000
 
     correlate_tf_motifs(adata)
 
+    return MotifAnnData(adata)
 
-def correlate_tf_motifs(adata):
+
+def correlate_tf_motifs(adata: AnnData) -> None:
     """Correlate inferred motif activity with TF expression.
 
     Parameters
@@ -470,7 +543,7 @@ def correlate_tf_motifs(adata):
     cor = pd.DataFrame(cor, columns=["motif", "factor", "corr", "pval"])
     cor["padj"] = multipletests(cor["pval"], method="fdr_bh")[1]
     cor["abscorr"] = np.abs(cor["corr"])
-    
+
     # Determine putative roles of TF based on sign of correlation coefficient.
     # This will not always be correct, as many factors have a high correlation
     # with more than one motif, both positive and negative. In that case it's
@@ -480,7 +553,7 @@ def correlate_tf_motifs(adata):
     adata.uns["motif"]["factor2motif"] = cor
 
 
-def reassign_cell_types(adata, min_annotated=50):
+def reassign_cell_types(adata: AnnData, min_annotated: int = 50) -> None:
     adata.obs["cell_annotation"] = (
         pd.Series(adata.uns["motif"]["cell_types"])
         .iloc[adata.obsm["X_cell_types"].argmax(1)]
@@ -493,7 +566,24 @@ def reassign_cell_types(adata, min_annotated=50):
         ~adata.obs["cell_annotation"].isin(valid), "cell_annotation"
     ] = "other"
 
-def locate_data(dataset, version=None):
+
+def locate_data(dataset: str, version: Optional[float] = None) -> str:
+    """Locate reference data for cell type annotation.
+
+    Data set will be downloaded if it can not be found.
+
+    Parameters
+    ----------
+    dataset : `str`
+        Name of dataset. Can be a local directory.
+    version : `float`, optional
+        Version of dataset
+
+    Returns
+    -------
+    `str`
+        Absolute path to data set directory.
+    """
     for datadir in [os.path.expanduser(dataset), os.path.join(CACHE_DIR, dataset)]:
         if os.path.isdir(datadir):
             if os.path.exists(os.path.join(datadir, "info.yaml")):
@@ -508,17 +598,18 @@ def locate_data(dataset, version=None):
         if version is None:
             url = df.sort_values("version").tail(1)["url"].values[0]
         else:
-            try:
-                url = df.loc[df["version"] == version]["url"].values[0]
-            except:
+            url_df = df.loc[df["version"] == version]
+            if url_df.shape[0] > 0:
+                url = url_df["url"].values[0]
+            else:
                 raise ValueError(f"Dataset {dataset} with version {version} not found.")
         datadir = os.path.join(CACHE_DIR, dataset)
         os.mkdir(datadir)
         datafile = os.path.join(datadir, os.path.split(url)[-1])
         sys.stdout.write(f"Downloading {dataset} data files to {datadir}...\n")
-        with urllib.request.urlopen(url) as response, open(datafile, 'wb') as outfile:
+        with urllib.request.urlopen(url) as response, open(datafile, "wb") as outfile:
             shutil.copyfileobj(response, outfile)
-        
+
         sys.stdout.write("Extracting files...\n")
         tf = tarfile.open(datafile)
         tf.extractall(datadir)
@@ -528,4 +619,172 @@ def locate_data(dataset, version=None):
     else:
         raise ValueError(f"Dataset {dataset} not found.")
 
-         
+
+def _run_correlation(args):
+    """Calculate correlation between motif activity and factor expression.
+    """
+    seed, it, do_shuffle = args
+    global expression
+    global f_and_m
+    global _corr_adata
+
+    motif_activity = _corr_adata.uns["motif"]["motif_activity"].copy()
+    if do_shuffle:
+        motif_activity.loc[:, :] = shuffle(
+            motif_activity.values.flatten(), random_state=seed
+        ).reshape(*motif_activity.shape)
+    cell_motif_activity = (motif_activity @ _corr_adata.obsm["X_cell_types"].T).T
+    cell_motif_activity.index = _corr_adata.obs_names
+
+    correlation = []
+    for factor, motifs in f_and_m.items():
+        correlation.append(
+            (
+                factor,
+                pearsonr(cell_motif_activity[motifs].mean(1), expression.loc[factor])[
+                    0
+                ],
+            )
+        )
+    correlation = pd.DataFrame(correlation, columns=["factor", f"corr"]).set_index(
+        "factor"
+    )
+
+    return correlation
+
+
+def determine_significance(adata, n_rounds=10000, ncpus=12):
+    """Determine significance of motif-TF correlations by Monte Carlo simulation.
+    """
+    # Create DataFrame of gene expression from the raw data in the adata object.
+    # We use the raw data as it will contain many more genes. Relevant transcription
+    # factors are not necessarily called as hyper-variable genes.
+    global expression
+    global f_and_m
+    global _corr_adata
+    _corr_adata = adata
+    if issparse(adata.raw.X):
+        expression = pd.DataFrame(
+            adata.raw.X.todense(), index=adata.obs_names, columns=adata.raw.var_names
+        ).T
+    else:
+        expression = pd.DataFrame(
+            adata.raw.X, index=adata.obs_names, columns=adata.raw.var_names
+        ).T
+
+    m_and_f = []
+    f_and_m = {}
+    m2f = motif_mapping(indirect=False)
+    for motif in adata.uns["motif"]["motif_activity"].index:
+        if motif in m2f.index:
+            factors = [
+                f for f in m2f.loc[motif, "factors"].split(",") if f in expression.index
+            ]
+            m_and_f.append([motif, factors])
+
+            for factor in factors:
+                if factor in f_and_m:
+                    f_and_m[factor].append(motif)
+                else:
+                    f_and_m[factor] = [motif]
+
+    print("start")
+
+    # Run n_rounds of correlation with shuffled motif activities.
+    # The last iteration will be with the real motif activities.
+    n_rounds = n_rounds + 1
+    correlation = pd.DataFrame(index=f_and_m.keys())
+    pool = Pool(ncpus)
+    with tqdm(total=n_rounds, file=sys.stdout) as pbar:
+        for i, corr_iter, in enumerate(
+            pool.imap(
+                _run_correlation,
+                [
+                    (np.random.randint(2 ** 32 - 1), it, not it == n_rounds - 1)
+                    for it in range(n_rounds)
+                ],
+            )
+        ):
+            correlation = correlation.join(corr_iter.iloc[:, [-1]], rsuffix=f"{i}")
+            pbar.update(1)
+
+    pool.close()
+    correlation = correlation.rename(columns={correlation.columns[-1]: "actual_corr"})
+
+    pval = [
+        (
+            100
+            - percentileofscore(
+                correlation.loc[factor, correlation.columns[:-2]],
+                correlation.loc[factor, "actual_corr"],
+            )
+        )
+        / 100
+        for factor in correlation.index
+    ]
+    correlation["pval"] = pval
+    correlation.loc[correlation["actual_corr"] < 0, "pval"] = (
+        1 - correlation.loc[correlation["actual_corr"] < 0, "pval"]
+    )
+    correlation.loc[correlation["pval"] == 0, "pval"] = 1 / (correlation.shape[1] - 2)
+    correlation["log_pval"] = -np.log10(correlation["pval"])
+
+    std_lst = []
+    for m, fs in m_and_f:
+        for f in fs:
+            std_lst.append([m, f])
+    std_df = pd.DataFrame(std_lst, columns=["motif", "factor"]).set_index("motif")
+    std_df = (
+        pd.DataFrame(adata.uns["motif"]["motif_activity"].std(1))
+        .join(std_df)
+        .groupby("factor")
+        .max()
+        .sort_values(0)
+    )
+    std_df.columns = ["std"]
+    if "std" in correlation.columns:
+        correlation = correlation.drop(columns=["std"])
+    correlation = correlation.join(std_df)
+    correlation["abs.actual_corr"] = np.abs(correlation["actual_corr"])
+
+    cols = ["std", "abs.actual_corr", "log_pval"]
+    rank = pd.DataFrame()
+    for col in cols:
+        rank[col] = correlation.sort_values(col, ascending=False).index.values
+    rank = rankagg(rank)
+    rank.columns = ["rank_pval"]
+
+    adata.uns["motif"]["correlation"] = correlation.join(rank)[
+        ["actual_corr", "pval", "log_pval", "std", "abs.actual_corr", "rank_pval"]
+    ]
+
+
+def plot_volcano_corr(adata):
+    g = sns.scatterplot(
+        data=adata.uns["motif"]["correlation"],
+        y="log_pval",
+        x="actual_corr",
+        size="std",
+        hue="std",
+        palette="viridis",
+        sizes=(1, 30),
+        linewidth=0,
+        alpha=0.5,
+    )
+    g.legend_.remove()
+    factors = adata.uns["motif"]["correlation"].sort_values("rank_pval").index[:40]
+    x = adata.uns["motif"]["correlation"].loc[factors, "actual_corr"]
+    y = adata.uns["motif"]["correlation"].loc[factors, "log_pval"]
+    texts = []
+
+    for s, xt, yt in zip(factors, x, y):
+        texts.append(plt.text(xt, yt, s, {"size": 6}))
+    plt.xlim(-0.8, 0.8)
+    adjust_text(
+        texts,
+        arrowprops=dict(arrowstyle="-", color="black"),
+        # expand_points=(1, 1), expand_text=(1, 1),
+    )
+    plt.xlabel("Correlation (motif vs. factor expression)")
+    plt.ylabel("Significance (log10 p-value)")
+    return g
