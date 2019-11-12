@@ -42,11 +42,13 @@ Make sure of the following:
 Once these preprocessing steps are met `infer_motifs()` can be run to infer the TF motif activity.
 
 ```
-from area27.sc import infer_motifs
+from area27.sc import infer_motifs, determine_significance
 
-# load preprocess single-cell data
+# load and preprocess single-cell data using scanpy
 
-infer_motifs(adata, data_dir="/path/to/ENCODE_dir")
+adata = infer_motifs(adata, dataset="ENCODE")
+determine_significance(adata)
+
 ```
 
 ### Determine enhancer-based regulatory potential

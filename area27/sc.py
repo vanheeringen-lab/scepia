@@ -5,6 +5,7 @@ from tempfile import NamedTemporaryFile
 import tarfile
 from typing import Optional
 from typing import List
+import inspect
 
 from anndata import AnnData
 import numpy as np
@@ -29,7 +30,7 @@ from gimmemotifs.moap import moap
 from gimmemotifs.maelstrom import run_maelstrom
 from gimmemotifs.utils import pfmfile_location
 from statsmodels.stats.multitest import multipletests
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from appdirs import user_cache_dir
 import urllib.request
 from multiprocessing import Pool
@@ -52,7 +53,7 @@ class MotifAnnData(AnnData):
         self.obs = self.obs.drop(columns=self.uns["motif"]["motif_activity"].index)
         print("converting to dict")
         for k in ["motif_activity", "factor2motif", "correlation"]:
-            self.uns['motif'][k] = self.uns['motif'][k].to_dict()
+            self.uns["motif"][k] = self.uns["motif"][k].to_dict()
         print("writing")
         super().write(*args, **kwargs)
         print("done")
@@ -64,11 +65,11 @@ def read(filename):
     print("done")
     print("converting")
     for k in ["motif_activity", "factor2motif", "correlation"]:
-        adata.uns['motif'][k] = pd.DataFrame(adata.uns['motif'][k])
+        adata.uns["motif"][k] = pd.DataFrame(adata.uns["motif"][k])
 
     cell_motif_activity = pd.DataFrame(
-             adata.uns["motif"]["motif_activity"] @ adata.obsm["X_cell_types"].T
-         ).T
+        adata.uns["motif"]["motif_activity"] @ adata.obsm["X_cell_types"].T
+    ).T
     cell_motif_activity.index = adata.obs_names
 
     adata.obs = adata.obs.drop(
@@ -592,7 +593,12 @@ def locate_data(dataset: str, version: Optional[float] = None) -> str:
                 raise ValueError(f"info.yaml not found in directory {datadir}")
 
     # Data file can not be found
-    df = pd.read_table("data/data_directory.txt", sep="\t")
+    # Read the data directory from the installed module
+    # Once the github is public, it can be read from the github repo directly
+    install_dir = os.path.dirname(
+        os.path.abspath(inspect.getfile(inspect.currentframe()))
+    )
+    df = pd.read_table(os.path.join(install_dir, "data/data_directory.txt", sep="\t"))
     df = df[df["name"] == dataset]
     if df.shape[0] > 0:
         if version is None:
@@ -695,8 +701,8 @@ def determine_significance(adata, n_rounds=10000, ncpus=12):
     n_rounds = n_rounds + 1
     correlation = pd.DataFrame(index=f_and_m.keys())
     pool = Pool(ncpus)
-    with tqdm(total=n_rounds, file=sys.stdout) as pbar:
-        for i, corr_iter, in enumerate(
+    for i, corr_iter, in tqdm(
+        enumerate(
             pool.imap(
                 _run_correlation,
                 [
@@ -704,9 +710,9 @@ def determine_significance(adata, n_rounds=10000, ncpus=12):
                     for it in range(n_rounds)
                 ],
             )
-        ):
-            correlation = correlation.join(corr_iter.iloc[:, [-1]], rsuffix=f"{i}")
-            pbar.update(1)
+        ), total=n_rounds
+    ):
+        correlation = correlation.join(corr_iter.iloc[:, [-1]], rsuffix=f"{i}")
 
     pool.close()
     correlation = correlation.rename(columns={correlation.columns[-1]: "actual_corr"})
