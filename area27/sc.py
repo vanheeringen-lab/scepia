@@ -1,18 +1,35 @@
+# Copyright (c) 2019 Simon van Heeringen <simon.vanheeringen@gmail.com>
+#
+# This module is free software. You can redistribute it and/or modify it under
+# the terms of the MIT License, see the file COPYING included with this
+# distribution.
+from collections import Counter
+import inspect
+from multiprocessing import Pool
 import os
-import sys
 import shutil
-from tempfile import NamedTemporaryFile
+import sys
 import tarfile
+from tempfile import NamedTemporaryFile
+import urllib.request
+
+# Typing
 from typing import Optional
 from typing import List
-import inspect
 
+from adjustText import adjust_text
 from anndata import AnnData
+from appdirs import user_cache_dir
+from gimmemotifs.motif import read_motifs
+from gimmemotifs.moap import moap
+from gimmemotifs.maelstrom import run_maelstrom
+from gimmemotifs.rank import rankagg
+from gimmemotifs.utils import pfmfile_location
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from scipy.sparse import issparse
-from scipy.stats import pearsonr, percentileofscore
-from yaml import load
+import scanpy.api as sc
+import seaborn as sns
 from sklearn.linear_model import MultiTaskLassoCV
 from sklearn.linear_model import (  # noqa: F401
     BayesianRidge,
@@ -22,22 +39,12 @@ from sklearn.linear_model import (  # noqa: F401
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import scale
 from sklearn.utils import shuffle
-import scanpy.api as sc
-
-from collections import Counter
-from gimmemotifs.motif import read_motifs
-from gimmemotifs.moap import moap
-from gimmemotifs.maelstrom import run_maelstrom
-from gimmemotifs.utils import pfmfile_location
+from scipy.sparse import issparse
+from scipy.stats import pearsonr, percentileofscore
 from statsmodels.stats.multitest import multipletests
 from tqdm.auto import tqdm
-from appdirs import user_cache_dir
-import urllib.request
-from multiprocessing import Pool
-from gimmemotifs.rank import rankagg
-import seaborn as sns
-from adjustText import adjust_text
-import matplotlib.pyplot as plt
+from yaml import load
+
 
 CACHE_DIR = os.path.join(user_cache_dir("area27"))
 expression = None
@@ -46,41 +53,85 @@ _corr_adata = None
 
 
 class MotifAnnData(AnnData):
+    """Extended AnnData class.
+    
+    Add the functionality to correctly save and load an AnnData object with
+    motif annotation results.
+    """
+
+    df_keys = ["motif_activity", "factor2motif", "correlation"]
+
     def __init__(self, adata):
         super().__init__(adata)
 
-    def write(self, *args, **kwargs):
+    def _remove_additional_data(self) -> None:
+        # Motif columns need to be removed, as the hdf5 backend cannot
+        # store the data otherwise (header too long).
         self.obs = self.obs.drop(columns=self.uns["motif"]["motif_activity"].index)
-        print("converting to dict")
-        for k in ["motif_activity", "factor2motif", "correlation"]:
+        # DataFrames are not supported in the h5ad format. By converting them
+        # dictionaries the can be restored to DataFrame format after loading.
+        for k in self.df_keys:
             self.uns["motif"][k] = self.uns["motif"][k].to_dict()
-        print("writing")
+
+    def _restore_additional_data(self) -> None:
+        # In this case it works for an AnnData object that contains no
+        # additional motif information
+        if "motif" not in adata.uns:
+            return
+
+        # Restore all DataFrames in uns
+        for k in self.df_keys:
+            adata.uns["motif"][k] = pd.DataFrame(adata.uns["motif"][k])
+
+        # The cell type-specific motif activity needs to be recreated.
+        cell_motif_activity = pd.DataFrame(
+            adata.uns["motif"]["motif_activity"] @ adata.obsm["X_cell_types"].T
+        ).T
+        cell_motif_activity.index = adata.obs_names
+        adata.obs = adata.obs.drop(
+            columns=cell_motif_activity.columns.intersection(adata.obs.columns)
+        )
+        adata.obs = adata.obs.join(cell_motif_activity)
+
+    def write(self, *args, **kwargs) -> None:
+        """Write a MotifAnnData object.
+        
+        All DataFrames in uns are converted to dictionaries and motif columns
+        are removed from obs.
+        """
+        self._remove_additional_data()
         super().write(*args, **kwargs)
-        print("done")
+        # If we don't restore it, the motif annotation will be useless
+        # after saving a MotifAnnData object.
+        self._restore_additional_data()
 
 
-def read(filename):
+def read(filename: str):
+    """Read a MotifAnnData object from a h5ad file.
+
+    Parameters
+    ----------
+    filename : `str`
+        Name of a h5ad file.
+    
+    Return
+    ------
+    MotifAnnData object.
+    """
     print("reading")
     adata = MotifAnnData(sc.read(filename))
     print("done")
     print("converting")
-    for k in ["motif_activity", "factor2motif", "correlation"]:
-        adata.uns["motif"][k] = pd.DataFrame(adata.uns["motif"][k])
-
-    cell_motif_activity = pd.DataFrame(
-        adata.uns["motif"]["motif_activity"] @ adata.obsm["X_cell_types"].T
-    ).T
-    cell_motif_activity.index = adata.obs_names
-
-    adata.obs = adata.obs.drop(
-        columns=cell_motif_activity.columns.intersection(adata.obs.columns)
-    )
-    adata.obs = adata.obs.join(cell_motif_activity)
+    adata._restore_additional_data()
     print("done")
     return adata
 
 
-def motif_mapping(pfm=None, genes=None, indirect=True):
+def motif_mapping(
+    pfm: Optional[str] = None,
+    genes: Optional[List[str]] = None,
+    indirect: Optional[bool] = True,
+):
     """Read motif annotation and return as DataFrame.
 
     Parameters
@@ -313,7 +364,15 @@ def relevant_cell_types(
     return list(cell_types)
 
 
-def validate_adata(adata):
+def validate_adata(adata: AnnData) -> None:
+    """Check if adata contains the necessary prerequisites to run the 
+    motif inference.
+
+    Parameters
+    ----------
+    adata : :class:`~anndata.AnnData`
+        Annotated data matrix.
+    """
     if adata.raw is None:
         raise ValueError("Please save the raw expression data in the .raw property.")
 
@@ -659,8 +718,19 @@ def _run_correlation(args):
     return correlation
 
 
-def determine_significance(adata, n_rounds=10000, ncpus=12):
+def determine_significance(
+    adata: AnnData, n_rounds: Optional[int] = 10000, ncpus: Optional[int] = 12
+) -> None:
     """Determine significance of motif-TF correlations by Monte Carlo simulation.
+    
+    Parameters
+    ----------
+    adata : :class:`~anndata.AnnData`
+        Annotated data matrix.
+    n_rounds : `int`, optional
+        Number of Monte Carlo simulations. The default is 10000.
+    ncpus : `int`, optional
+        Number of threads to use.
     """
     # Create DataFrame of gene expression from the raw data in the adata object.
     # We use the raw data as it will contain many more genes. Relevant transcription
@@ -710,7 +780,8 @@ def determine_significance(adata, n_rounds=10000, ncpus=12):
                     for it in range(n_rounds)
                 ],
             )
-        ), total=n_rounds
+        ),
+        total=n_rounds,
     ):
         correlation = correlation.join(corr_iter.iloc[:, [-1]], rsuffix=f"{i}")
 
@@ -765,26 +836,50 @@ def determine_significance(adata, n_rounds=10000, ncpus=12):
     ]
 
 
-def plot_volcano_corr(adata):
+def plot_volcano_corr(
+    adata,
+    n_anno=40,
+    size_anno=6,
+    palette="viridis",
+    alpha=0.5,
+    linewidth=0,
+    sizes=(1, 30),
+    **kwargs,
+):
+    """Volcano plot of significance of motif-TF correlations.
+    
+    Parameters
+    ----------
+    adata : :class:`~anndata.AnnData`
+        Annotated data matrix.
+    """
+    if "motif" not in adata.uns:
+        raise ValueError("Motif annotation not found. Did you run `infer_motifs()`?")
+    if "correlation" not in adata.uns["motif"]:
+        raise ValueError(
+            "Motif-TF correlation data not found. Did you run `determine_significance()`?"
+        )
+
     g = sns.scatterplot(
         data=adata.uns["motif"]["correlation"],
         y="log_pval",
         x="actual_corr",
         size="std",
         hue="std",
-        palette="viridis",
-        sizes=(1, 30),
-        linewidth=0,
-        alpha=0.5,
+        palette=palette,
+        sizes=sizes,
+        linewidth=linewidth,
+        alpha=alpha,
+        **kwargs,
     )
     g.legend_.remove()
-    factors = adata.uns["motif"]["correlation"].sort_values("rank_pval").index[:40]
+    factors = adata.uns["motif"]["correlation"].sort_values("rank_pval").index[:n_anno]
     x = adata.uns["motif"]["correlation"].loc[factors, "actual_corr"]
     y = adata.uns["motif"]["correlation"].loc[factors, "log_pval"]
     texts = []
 
     for s, xt, yt in zip(factors, x, y):
-        texts.append(plt.text(xt, yt, s, {"size": 6}))
+        texts.append(plt.text(xt, yt, s, {"size": size_anno}))
     plt.xlim(-0.8, 0.8)
     adjust_text(
         texts,
