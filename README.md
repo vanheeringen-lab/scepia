@@ -52,7 +52,7 @@ adata = infer_motifs(adata, dataset="ENCODE")
 determine_significance(adata)
 ```
 
-The resulting `AnnData` object can be saved with the `.save()` method to a `h5ad` file. However, due to some difficulties with storing the motif annotation in the correct format the file cannot be loaded with the `scanpy` load() method. Instead, use the `read()` method from the area27 package:
+The resulting `AnnData` object can be saved with the `.write()` method to a `h5ad` file. However, due to some difficulties with storing the motif annotation in the correct format the file cannot be loaded with the `scanpy` load() method. Instead, use the `read()` method from the area27 package:
 
 ```
 from area27.sc import read
