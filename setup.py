@@ -2,25 +2,20 @@ from setuptools import setup, find_packages
 
 import os
 
-CONFIG_NAME = "gimmemotifs.cfg"
-DESCRIPTION = "GimmeMotifs is a motif prediction pipeline."
+DESCRIPTION = "Inference of transcription factor motif activity from single cell RNA-seq data."
 
-# with open('README.md', encoding='utf-8') as f:
-#    long_description = f.read().strip("\n")
-
-# are we in the conda build environment?
-conda_build = os.environ.get("CONDA_BUILD")
+with open("README.md") as f:
+    long_description = f.read()
 
 setup(
     name="area27",
     version="0.1.0",
-    #        long_description = long_description,
-    #        long_description_content_type = 'text/markdown',
+    long_description = long_description,
+    long_description_content_type = 'text/markdown',
     description=DESCRIPTION,
     author="Simon van Heeringen",
     author_email="simon.vanheeringen@gmail.com",
-    url="https://github.com/simonvh/gimmemotifs/",
-    #        download_url = 'https://github.com/simonvh/gimmemotifs/tarball/' + versioneer.get_version(),
+    url="https://github.com/vanheeringen-lab/area27/",
     license="MIT",
     packages=find_packages(),
     scripts=["scripts/area27"],
@@ -32,7 +27,10 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX :: Linux",
-        "Programming Language :: Python :: 3.5",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3",
         "Topic :: Scientific/Engineering :: Bio-Informatics",
     ],
     install_requires=[
