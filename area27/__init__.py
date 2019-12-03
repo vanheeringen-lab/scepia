@@ -311,3 +311,7 @@ def generate_signal(bam_file, window, meanstd_file=None, target_file=None, nthre
     meanstd["signal"] = quantile_norm(meanstd["signal"].values, target)
     meanstd["signal"] = (meanstd["signal"] - meanstd["mean"]) / meanstd["std"]
     return meanstd.set_index("index")[["signal"]]
+
+from ._version import get_versions
+__version__ = get_versions()['version']
+del get_versions

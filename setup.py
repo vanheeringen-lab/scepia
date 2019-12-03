@@ -1,5 +1,5 @@
+import versioneer
 from setuptools import setup, find_packages
-
 import os
 
 DESCRIPTION = "Inference of transcription factor motif activity from single cell RNA-seq data."
@@ -9,7 +9,7 @@ with open("README.md") as f:
 
 setup(
     name="area27",
-    version="0.1.0",
+    version=versioneer.get_version(),
     long_description = long_description,
     long_description_content_type = 'text/markdown',
     description=DESCRIPTION,
