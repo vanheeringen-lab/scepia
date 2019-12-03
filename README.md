@@ -1,6 +1,6 @@
 *Note:* at the moment this package is being actively developed and might not always be stable.
 
-# Area27
+# SCEPIA
 
 Inference of transcription factor motif activity from single cell RNA-seq data. The regulatory inference is based on a two-step process:
 
