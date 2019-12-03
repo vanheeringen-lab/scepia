@@ -54,7 +54,7 @@ _corr_adata = None
 
 class MotifAnnData(AnnData):
     """Extended AnnData class.
-    
+
     Add the functionality to correctly save and load an AnnData object with
     motif annotation results.
     """
@@ -84,7 +84,7 @@ class MotifAnnData(AnnData):
             self.uns["motif"][k] = pd.DataFrame(self.uns["motif"][k])
 
         # Make sure the cell types are in the correct order
-        self.uns["motif"]["motif_activity"] = self.uns["motif"]["motif_activity"][self.uns["motif"]["cell_types"]]        
+        self.uns["motif"]["motif_activity"] = self.uns["motif"]["motif_activity"][self.uns["motif"]["cell_types"]]
         #  The cell type-specific motif activity needs to be recreated.
         cell_motif_activity = pd.DataFrame(
             self.uns["motif"]["motif_activity"] @ self.obsm["X_cell_types"].T
@@ -97,7 +97,7 @@ class MotifAnnData(AnnData):
 
     def write(self, *args, **kwargs) -> None:
         """Write a MotifAnnData object.
-        
+
         All DataFrames in uns are converted to dictionaries and motif columns
         are removed from obs.
         """
@@ -115,7 +115,7 @@ def read(filename: str):
     ----------
     filename : `str`
         Name of a h5ad file.
-    
+
     Return
     ------
     MotifAnnData object.
@@ -367,7 +367,7 @@ def relevant_cell_types(
 
 
 def validate_adata(adata: AnnData) -> None:
-    """Check if adata contains the necessary prerequisites to run the 
+    """Check if adata contains the necessary prerequisites to run the
     motif inference.
 
     Parameters
@@ -478,7 +478,7 @@ def infer_motifs(
     cell_types = relevant_cell_types(adata, gene_df)
     adata.uns["motif"]["cell_types"] = cell_types
 
-    print("linking variable genes to enhancers")
+    print("linking variable genes to differential enhancers")
     link = pd.read_feather(link_file)
     if use_name:
         ens2name = pd.read_csv(
@@ -659,7 +659,7 @@ def locate_data(dataset: str, version: Optional[float] = None) -> str:
     install_dir = os.path.dirname(
         os.path.abspath(inspect.getfile(inspect.currentframe()))
     )
-    df = pd.read_table(os.path.join(install_dir, "data/data_directory.txt", sep="\t"))
+    df = pd.read_csv(os.path.join(install_dir, "../data/data_directory.txt"), sep="\t")
     df = df[df["name"] == dataset]
     if df.shape[0] > 0:
         if version is None:
@@ -700,13 +700,10 @@ def _run_correlation(args):
         motif_activity = shuffle(
             _corr_adata.uns["motif"]["motif_activity"].values.flatten(), random_state=seed
         ).reshape(shape[1], shape[0])
-        #motif_activity.loc[:, :] = shuffle(
-        #    motif_activity.values.flatten(), random_state=seed
-        #).reshape(*motif_activity.shape)
+
     else:
         motif_activity = _corr_adata.uns["motif"]["motif_activity"].T.values
     cell_motif_activity = pd.DataFrame(_corr_adata.obsm["X_cell_types"] @ motif_activity)
-    #cell_motif_activity.index = _corr_adata.obs_names
     cell_motif_activity.columns = _corr_adata.uns["motif"]["motif_activity"].index
 
     correlation = []
@@ -730,7 +727,7 @@ def determine_significance(
     adata: AnnData, n_rounds: Optional[int] = 10000, ncpus: Optional[int] = 12, corr_quantile: Optional[float] = 0.5,
 ) -> None:
     """Determine significance of motif-TF correlations by Monte Carlo simulation.
-    
+
     Parameters
     ----------
     adata : :class:`~anndata.AnnData`
@@ -743,6 +740,9 @@ def determine_significance(
     # Create DataFrame of gene expression from the raw data in the adata object.
     # We use the raw data as it will contain many more genes. Relevant transcription
     # factors are not necessarily called as hyper-variable genes.
+    if "motif" not in adata.uns:
+        raise ValueError("Could not find motif information. Did you run infer_motifs() first?")
+
     global expression
     global f_and_m
     global _corr_adata
@@ -862,7 +862,7 @@ def plot_volcano_corr(
     **kwargs,
 ):
     """Volcano plot of significance of motif-TF correlations.
-    
+
     Parameters
     ----------
     adata : :class:`~anndata.AnnData`
