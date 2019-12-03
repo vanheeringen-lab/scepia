@@ -1,0 +1,17 @@
+channels:
+  - defaults
+  - bioconda
+  - conda-forge
+dependencies:
+  - adjusttext
+  - biofluff
+  - gimmemotifs
+  - scanpy
+
+  # Testing etc.
+  - autopep8
+  - flake8
+  - black
+  - coverage
+  - pytest
+        
