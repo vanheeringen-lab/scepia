@@ -76,22 +76,24 @@ class MotifAnnData(AnnData):
     def _restore_additional_data(self) -> None:
         # In this case it works for an AnnData object that contains no
         # additional motif information
-        if "motif" not in adata.uns:
+        if "motif" not in self.uns:
             return
 
         # Restore all DataFrames in uns
         for k in self.df_keys:
-            adata.uns["motif"][k] = pd.DataFrame(adata.uns["motif"][k])
+            self.uns["motif"][k] = pd.DataFrame(self.uns["motif"][k])
 
-        # The cell type-specific motif activity needs to be recreated.
+        # Make sure the cell types are in the correct order
+        self.uns["motif"]["motif_activity"] = self.uns["motif"]["motif_activity"][self.uns["motif"]["cell_types"]]        
+        #  The cell type-specific motif activity needs to be recreated.
         cell_motif_activity = pd.DataFrame(
-            adata.uns["motif"]["motif_activity"] @ adata.obsm["X_cell_types"].T
+            self.uns["motif"]["motif_activity"] @ self.obsm["X_cell_types"].T
         ).T
-        cell_motif_activity.index = adata.obs_names
-        adata.obs = adata.obs.drop(
-            columns=cell_motif_activity.columns.intersection(adata.obs.columns)
+        cell_motif_activity.index = self.obs_names
+        self.obs = self.obs.drop(
+            columns=cell_motif_activity.columns.intersection(self.obs.columns)
         )
-        adata.obs = adata.obs.join(cell_motif_activity)
+        self.obs = self.obs.join(cell_motif_activity)
 
     def write(self, *args, **kwargs) -> None:
         """Write a MotifAnnData object.
@@ -526,7 +528,7 @@ def infer_motifs(
             scoring="score",
             genome="hg38",
             method="bayesianridge",
-            pwmfile=pfm,
+            pfmfile=pfm,
             ncpus=12,
         )
 
@@ -693,13 +695,19 @@ def _run_correlation(args):
     global f_and_m
     global _corr_adata
 
-    motif_activity = _corr_adata.uns["motif"]["motif_activity"].copy()
     if do_shuffle:
-        motif_activity.loc[:, :] = shuffle(
-            motif_activity.values.flatten(), random_state=seed
-        ).reshape(*motif_activity.shape)
-    cell_motif_activity = (motif_activity @ _corr_adata.obsm["X_cell_types"].T).T
-    cell_motif_activity.index = _corr_adata.obs_names
+        shape = _corr_adata.uns["motif"]["motif_activity"].shape
+        motif_activity = shuffle(
+            _corr_adata.uns["motif"]["motif_activity"].values.flatten(), random_state=seed
+        ).reshape(shape[1], shape[0])
+        #motif_activity.loc[:, :] = shuffle(
+        #    motif_activity.values.flatten(), random_state=seed
+        #).reshape(*motif_activity.shape)
+    else:
+        motif_activity = _corr_adata.uns["motif"]["motif_activity"].T.values
+    cell_motif_activity = pd.DataFrame(_corr_adata.obsm["X_cell_types"] @ motif_activity)
+    #cell_motif_activity.index = _corr_adata.obs_names
+    cell_motif_activity.columns = _corr_adata.uns["motif"]["motif_activity"].index
 
     correlation = []
     for factor, motifs in f_and_m.items():
@@ -719,7 +727,7 @@ def _run_correlation(args):
 
 
 def determine_significance(
-    adata: AnnData, n_rounds: Optional[int] = 10000, ncpus: Optional[int] = 12
+    adata: AnnData, n_rounds: Optional[int] = 10000, ncpus: Optional[int] = 12, corr_quantile: Optional[float] = 0.5,
 ) -> None:
     """Determine significance of motif-TF correlations by Monte Carlo simulation.
     
@@ -764,47 +772,10 @@ def determine_significance(
                 else:
                     f_and_m[factor] = [motif]
 
-    print("start")
-
-    # Run n_rounds of correlation with shuffled motif activities.
-    # The last iteration will be with the real motif activities.
-    n_rounds = n_rounds + 1
     correlation = pd.DataFrame(index=f_and_m.keys())
-    pool = Pool(ncpus)
-    for i, corr_iter, in tqdm(
-        enumerate(
-            pool.imap(
-                _run_correlation,
-                [
-                    (np.random.randint(2 ** 32 - 1), it, not it == n_rounds - 1)
-                    for it in range(n_rounds)
-                ],
-            )
-        ),
-        total=n_rounds,
-    ):
-        correlation = correlation.join(corr_iter.iloc[:, [-1]], rsuffix=f"{i}")
-
-    pool.close()
-    correlation = correlation.rename(columns={correlation.columns[-1]: "actual_corr"})
-
-    pval = [
-        (
-            100
-            - percentileofscore(
-                correlation.loc[factor, correlation.columns[:-2]],
-                correlation.loc[factor, "actual_corr"],
-            )
-        )
-        / 100
-        for factor in correlation.index
-    ]
-    correlation["pval"] = pval
-    correlation.loc[correlation["actual_corr"] < 0, "pval"] = (
-        1 - correlation.loc[correlation["actual_corr"] < 0, "pval"]
-    )
-    correlation.loc[correlation["pval"] == 0, "pval"] = 1 / (correlation.shape[1] - 2)
-    correlation["log_pval"] = -np.log10(correlation["pval"])
+    correlation = correlation.join(_run_correlation((0, 0, False)))
+    correlation.columns = ['actual_corr']
+    correlation["abs.actual_corr"] = np.abs(correlation["actual_corr"])
 
     std_lst = []
     for m, fs in m_and_f:
@@ -822,18 +793,62 @@ def determine_significance(
     if "std" in correlation.columns:
         correlation = correlation.drop(columns=["std"])
     correlation = correlation.join(std_df)
-    correlation["abs.actual_corr"] = np.abs(correlation["actual_corr"])
+
+    min_corr = correlation["abs.actual_corr"].quantile(corr_quantile)
+    for factor in correlation[correlation["abs.actual_corr"] < min_corr].index:
+        del f_and_m[factor]
+
+    tmp_corr = correlation[correlation["abs.actual_corr"] >= min_corr]
+    # Run n_rounds of correlation with shuffled motif activities.
+    # The last iteration will be with the real motif activities.
+    n_rounds = n_rounds
+    print("running Monte Carlo")
+    pool = Pool(ncpus)
+    for i, corr_iter, in tqdm(
+        enumerate(
+            pool.imap(
+                _run_correlation,
+                [
+                    (np.random.randint(2 ** 32 - 1), it, True)
+                    for it in range(n_rounds)
+                ],
+            )
+        ),
+        total=n_rounds,
+    ):
+        tmp_corr = tmp_corr.join(corr_iter.iloc[:, [-1]], rsuffix=f"{i}")
+
+    pool.close()
+
+    pval = [
+        (
+            100
+            - percentileofscore(
+                tmp_corr.loc[factor, tmp_corr.columns[-n_rounds:]],
+                tmp_corr.loc[factor, "actual_corr"],
+            )
+        )
+        / 100
+        for factor in tmp_corr.index
+    ]
+    tmp_corr["pval"] = pval
+    tmp_corr.loc[tmp_corr["actual_corr"] < 0, "pval"] = (
+        1 - tmp_corr.loc[tmp_corr["actual_corr"] < 0, "pval"]
+    )
+    tmp_corr.loc[tmp_corr["pval"] == 0, "pval"] = 1 / (tmp_corr.shape[1] - 2)
+    tmp_corr["log_pval"] = -np.log10(tmp_corr["pval"])
 
     cols = ["std", "abs.actual_corr", "log_pval"]
     rank = pd.DataFrame()
     for col in cols:
-        rank[col] = correlation.sort_values(col, ascending=False).index.values
+        rank[col] = tmp_corr.sort_values(col, ascending=False).index.values
     rank = rankagg(rank)
     rank.columns = ["rank_pval"]
+    tmp_corr = tmp_corr.join(rank)
 
-    adata.uns["motif"]["correlation"] = correlation.join(rank)[
-        ["actual_corr", "pval", "log_pval", "std", "abs.actual_corr", "rank_pval"]
-    ]
+    correlation = correlation.join(tmp_corr[["pval", "log_pval", "rank_pval"]])
+
+    adata.uns["motif"]["correlation"] = correlation
 
 
 def plot_volcano_corr(
