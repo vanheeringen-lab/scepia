@@ -40,6 +40,7 @@ setup(
         "matplotlib",
         "numpy",
         "pandas",
+        "scanpy",
         "scikit-learn",
         "scipy",
         "seaborn",
