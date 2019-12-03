@@ -1,0 +1,52 @@
+# use the minimal travis environment since we test in conda
+language: minimal
+
+os:
+  - osx
+  - linux
+
+env:
+  global:
+    - CC_TEST_REPORTER_ID=951f438ac8a0fa93801ff0bf69922df59fe03800bf7ea8ab77a3c26cda444979
+  jobs:
+    - PYTHON_VERSION: "3.6"
+#    - PYTHON_VERSION: "3.7"
+#    - PYTHON_VERSION: "3.8"
+
+before_install:
+  # install miniconda
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
+      wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh;
+    else
+      wget https://repo.continuum.io/miniconda/Miniconda3-latest-MacOSX-x86_64.sh -O miniconda.sh;
+    fi
+  - chmod +x miniconda.sh
+  - ./miniconda.sh -b -p $HOME/miniconda -f
+  - export PATH=$HOME/miniconda/bin:$PATH
+  - conda config --set always_yes yes
+
+install:
+  # python version is specified in environment.yml
+  - conda env create -n scepia python=$PYTHON_VERSION -f environment.yml
+  - source activate scepia
+  - python setup.py develop
+  - python setup.py build
+
+before_script:
+  # install codeclimate test coverage
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
+        wget -O cc-test-reporter https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64;
+    else
+        wget -O cc-test-reporter https://codeclimate.com/downloads/test-reporter/test-reporter-latest-darwin-amd64;
+    fi
+  - chmod +x ./cc-test-reporter
+  - ./cc-test-reporter before-build
+
+script:
+  - black --check setup.py scepia/ tests/
+  - flake8 setup.py scepia/ tests/
+  - pytest -v --disable-pytest-warnings --cov=genomepy --cov-report=xml tests/
+
+# Pipe the coverage data to Code Climate
+after_script:
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then ./cc-test-reporter after-build -t coverage.py --exit-code $TRAVIS_TEST_RESULT; fi

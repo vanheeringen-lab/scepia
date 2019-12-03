@@ -2,6 +2,7 @@ channels:
   - defaults
   - bioconda
   - conda-forge
+
 dependencies:
   - adjusttext
   - biofluff
@@ -9,7 +10,6 @@ dependencies:
   - scanpy
 
   # Testing etc.
-  - autopep8
   - flake8
   - black
   - coverage
