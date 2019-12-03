@@ -1,3 +1,8 @@
+# Copyright (c) 2019 Simon van Heeringen <simon.vanheeringen@gmail.com>
+#
+# This module is free software. You can redistribute it and/or modify it under
+# the terms of the MIT License, see the file LICENSE included with this
+# distribution.
 from functools import partial
 import os
 import re
@@ -13,7 +18,7 @@ from fluff.fluffio import load_heatmap_data
 from pybedtools import BedTool
 from genomepy import Genome
 
-CACHE_DIR = os.path.join(xdg.XDG_CACHE_HOME, "area27")
+CACHE_DIR = os.path.join(xdg.XDG_CACHE_HOME, "scepia")
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR)
 
@@ -292,7 +297,7 @@ def generate_signal(bam_file, window, meanstd_file=None, target_file=None, nthre
     if target_file is None:
         target_file = resource_filename(__name__, "data/remap.hg38.target.npz")
 
-    with NamedTemporaryFile(prefix=f"area27.", suffix=".bed") as f:
+    with NamedTemporaryFile(prefix=f"scepia.", suffix=".bed") as f:
         if meanstd_file.endswith("feather"):
             meanstd = pd.read_feather(meanstd_file)
         else:

@@ -8,17 +8,17 @@ with open("README.md") as f:
     long_description = f.read()
 
 setup(
-    name="area27",
+    name="scepia",
     version=versioneer.get_version(),
     long_description = long_description,
     long_description_content_type = 'text/markdown',
     description=DESCRIPTION,
     author="Simon van Heeringen",
     author_email="simon.vanheeringen@gmail.com",
-    url="https://github.com/vanheeringen-lab/area27/",
+    url="https://github.com/vanheeringen-lab/scepia/",
     license="MIT",
     packages=find_packages(),
-    scripts=["scripts/area27"],
+    scripts=["scripts/scepia"],
     include_package_data=True,
     zip_safe=False,
     classifiers=[

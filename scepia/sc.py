@@ -1,7 +1,7 @@
 # Copyright (c) 2019 Simon van Heeringen <simon.vanheeringen@gmail.com>
 #
 # This module is free software. You can redistribute it and/or modify it under
-# the terms of the MIT License, see the file COPYING included with this
+# the terms of the MIT License, see the file LICENSE included with this
 # distribution.
 from collections import Counter
 import inspect
@@ -46,7 +46,7 @@ from tqdm.auto import tqdm
 from yaml import load
 
 
-CACHE_DIR = os.path.join(user_cache_dir("area27"))
+CACHE_DIR = os.path.join(user_cache_dir("scepia"))
 expression = None
 f_and_m = None
 _corr_adata = None

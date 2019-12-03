@@ -1,3 +1,3 @@
 graft data/
 include versioneer.py
-include area27/_version.py
+include scepia/_version.py

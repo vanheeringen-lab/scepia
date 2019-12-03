@@ -18,22 +18,22 @@ The current reference is based on H3K27ac profiles from ENCODE.
 ## Installation
 
 ``` 
-conda create -n area27 python=3 biofluff gimmemotifs scanpy
-conda activate area27
+conda create -n scepia python=3 adjusttext biofluff gimmemotifs scanpy
+conda activate scepia
 pip install git+https://github.com/vanheeringen-lab/gimmemotifs.git@develop
-pip install git+https://github.com/vanheeringen-lab/area27.git@develop
+pip install git+https://github.com/vanheeringen-lab/scepia.git@develop
 ```
 
 ## Usage
 
 Remember to activate the environment before using it
 ```
-conda activate area27
+conda activate scepia
 ```
 
 ### Single cell-based motif inference
 
-The [scanpy](https://github.com/theislab/scanpy) package is essential to use area27. Single cell data should be loaded in an [AnnData](https://anndata.readthedocs.io/en/latest/anndata.AnnData.html) object.
+The [scanpy](https://github.com/theislab/scanpy) package is essential to use scepia. Single cell data should be loaded in an [AnnData](https://anndata.readthedocs.io/en/latest/anndata.AnnData.html) object.
 Make sure of the following:
 
 * Gene names are used in `adata.var_names`, not Ensembl identifiers or any other gene identifiers.
@@ -44,7 +44,7 @@ Make sure of the following:
 Once these preprocessing steps are met `infer_motifs()` can be run to infer the TF motif activity. The first time the reference data will be downloaded, so this will take somewhat longer.
 
 ```
-from area27.sc import infer_motifs, determine_significance
+from scepia.sc import infer_motifs, determine_significance
 
 # load and preprocess single-cell data using scanpy
 
@@ -52,10 +52,10 @@ adata = infer_motifs(adata, dataset="ENCODE")
 determine_significance(adata)
 ```
 
-The resulting `AnnData` object can be saved with the `.write()` method to a `h5ad` file. However, due to some difficulties with storing the motif annotation in the correct format the file cannot be loaded with the `scanpy` load() method. Instead, use the `read()` method from the area27 package:
+The resulting `AnnData` object can be saved with the `.write()` method to a `h5ad` file. However, due to some difficulties with storing the motif annotation in the correct format the file cannot be loaded with the `scanpy` load() method. Instead, use the `read()` method from the scepia package:
 
 ```
-from area27.sc import read
+from scepia.sc import read
 adata = read("my_saved_data.h5ad")
 ```
 
@@ -70,6 +70,6 @@ To use, an H3K27ac BAM file is needed (mapped to hg38). The `-N` argument
 specifies the number of threads to use.
 
 ```
-area27 <bamfile> <outfile> -N 12
+scepia <bamfile> <outfile> -N 12
 ```
 
