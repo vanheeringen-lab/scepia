@@ -17,9 +17,26 @@ The current reference is based on H3K27ac profiles from ENCODE.
 
 ## Installation
 
+You will need [conda](https://docs.continuum.io/anaconda/) using the [bioconda](https://bioconda.github.io/) channel.
+
+Make sure you have conda installed. If you have not used bioconda before, first set up the necessary channels (in this order!). You only have to do this once.
+
+```
+$ conda config --add channels defaults
+$ conda config --add channels bioconda
+$ conda config --add channels conda-forge
+```
+
+Now you can create an environment for scepia:
+
 ``` 
 conda create -n scepia python=3 adjusttext biofluff gimmemotifs scanpy
 conda activate scepia
+```
+
+Install the development version of GimmeMotifs and scepia:
+
+```
 pip install git+https://github.com/vanheeringen-lab/gimmemotifs.git@develop
 pip install git+https://github.com/vanheeringen-lab/scepia.git@develop
 ```
@@ -41,7 +58,7 @@ Make sure of the following:
 * The main `adata` object is filtered to contain only hypervariable genes.
 * Louvain clustering has been run.
 
-Once these preprocessing steps are met `infer_motifs()` can be run to infer the TF motif activity. The first time the reference data will be downloaded, so this will take somewhat longer.
+Once these preprocessing steps are met, `infer_motifs()` can be run to infer the TF motif activity. The first time the reference data will be downloaded, so this will take somewhat longer.
 
 ```
 from scepia.sc import infer_motifs, determine_significance
@@ -52,7 +69,7 @@ adata = infer_motifs(adata, dataset="ENCODE")
 determine_significance(adata)
 ```
 
-The resulting `AnnData` object can be saved with the `.write()` method to a `h5ad` file. However, due to some difficulties with storing the motif annotation in the correct format the file cannot be loaded with the `scanpy` load() method. Instead, use the `read()` method from the scepia package:
+The resulting `AnnData` object can be saved with the `.write()` method to a `h5ad` file. However, due to some difficulties with storing the motif annotation in the correct format, the file cannot be loaded with the `scanpy` load() method. Instead, use the `read()` method from the scepia package:
 
 ```
 from scepia.sc import read
