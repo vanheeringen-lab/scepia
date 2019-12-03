@@ -1,8 +1,8 @@
-*Note:* at the moment this package is being actively developed and might not always be stable.
+*Please note:* at the moment this package is being actively developed and might not always be stable.
 
-# SCEPIA
+# SCEPIA - Single Cell Epigenome-based Inference of Activity
 
-Inference of transcription factor motif activity from single cell RNA-seq data. The regulatory inference is based on a two-step process:
+SCEPI predicts transcription factor motif activity from single cell RNA-seq data. It uses computationally inferred epigenomes of single cells to identify transcription factors that determine cellular states. The regulatory inference is based on a two-step process:
 
 1) Single cells are matched to a combination of (bulk) reference H3K27ac profiles.
 2) Using the H3K27ac signal in enhancers associated with hypervariable genes the TF motif activity is inferred.
