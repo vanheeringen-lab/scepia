@@ -84,7 +84,9 @@ class MotifAnnData(AnnData):
             self.uns["motif"][k] = pd.DataFrame(self.uns["motif"][k])
 
         # Make sure the cell types are in the correct order
-        self.uns["motif"]["motif_activity"] = self.uns["motif"]["motif_activity"][self.uns["motif"]["cell_types"]]
+        self.uns["motif"]["motif_activity"] = self.uns["motif"]["motif_activity"][
+            self.uns["motif"]["cell_types"]
+        ]
         #  The cell type-specific motif activity needs to be recreated.
         cell_motif_activity = pd.DataFrame(
             self.uns["motif"]["motif_activity"] @ self.obsm["X_cell_types"].T
@@ -544,17 +546,34 @@ def infer_motifs(
     )
     adata.obsm["X_cell_types"] = df_coef.T[adata.uns["motif"]["cell_types"]].values
 
-    adata.obs = adata.obs.drop(
-        columns=annotation_result.columns.intersection(adata.obs.columns)
-    )
-    adata.obs = adata.obs.join(annotation_result)
+    #    adata.obs = adata.obs.drop(
+    #        columns=annotation_result.columns.intersection(adata.obs.columns)
+    #    )
+    #    adata.obs = adata.obs.join(annotation_result)
+    #
+    #    count = adata.obs.groupby("cell_annotation").count().iloc[:, 0]
+    #    valid = count[count > min_annotated].index
+    #    adata.obs["cell_annotation"] = adata.obs["cell_annotation"].astype(str)
+    #    adata.obs.loc[
+    #        ~adata.obs["cell_annotation"].isin(valid), "cell_annotation"
+    #    ] = "other"
 
-    count = adata.obs.groupby("cell_annotation").count().iloc[:, 0]
-    valid = count[count > min_annotated].index
-    adata.obs["cell_annotation"] = adata.obs["cell_annotation"].astype(str)
-    adata.obs.loc[
-        ~adata.obs["cell_annotation"].isin(valid), "cell_annotation"
-    ] = "other"
+    assign_cell_types(adata, min_annotated=1)
+    cluster_count = (
+        adata.obs.groupby(["louvain", "cell_annotation"]).count().iloc[:, 0].dropna()
+    )
+    cluster_anno = (
+        cluster_count.sort_values()
+        .reset_index()
+        .drop_duplicates(subset="louvain", keep="last")
+        .set_index("louvain")
+    )
+
+    cluster_anno = cluster_anno[["cell_annotation"]].rename(
+        columns={"cell_annotation": "cluster_annotation"}
+    )
+    adata.obs = adata.obs.join(cluster_anno, on="louvain")
+    assign_cell_types(adata)
 
     print("calculating cell-specific motif activity")
     cell_motif_activity = (
@@ -615,7 +634,7 @@ def correlate_tf_motifs(adata: AnnData) -> None:
     adata.uns["motif"]["factor2motif"] = cor
 
 
-def reassign_cell_types(adata: AnnData, min_annotated: int = 50) -> None:
+def assign_cell_types(adata: AnnData, min_annotated: int = 50) -> None:
     adata.obs["cell_annotation"] = (
         pd.Series(adata.uns["motif"]["cell_types"])
         .iloc[adata.obsm["X_cell_types"].argmax(1)]
@@ -698,12 +717,15 @@ def _run_correlation(args):
     if do_shuffle:
         shape = _corr_adata.uns["motif"]["motif_activity"].shape
         motif_activity = shuffle(
-            _corr_adata.uns["motif"]["motif_activity"].values.flatten(), random_state=seed
+            _corr_adata.uns["motif"]["motif_activity"].values.flatten(),
+            random_state=seed,
         ).reshape(shape[1], shape[0])
 
     else:
         motif_activity = _corr_adata.uns["motif"]["motif_activity"].T.values
-    cell_motif_activity = pd.DataFrame(_corr_adata.obsm["X_cell_types"] @ motif_activity)
+    cell_motif_activity = pd.DataFrame(
+        _corr_adata.obsm["X_cell_types"] @ motif_activity
+    )
     cell_motif_activity.columns = _corr_adata.uns["motif"]["motif_activity"].index
 
     correlation = []
@@ -724,7 +746,10 @@ def _run_correlation(args):
 
 
 def determine_significance(
-    adata: AnnData, n_rounds: Optional[int] = 10000, ncpus: Optional[int] = 12, corr_quantile: Optional[float] = 0.5,
+    adata: AnnData,
+    n_rounds: Optional[int] = 10000,
+    ncpus: Optional[int] = 12,
+    corr_quantile: Optional[float] = 0.5,
 ) -> None:
     """Determine significance of motif-TF correlations by Monte Carlo simulation.
 
@@ -741,7 +766,9 @@ def determine_significance(
     # We use the raw data as it will contain many more genes. Relevant transcription
     # factors are not necessarily called as hyper-variable genes.
     if "motif" not in adata.uns:
-        raise ValueError("Could not find motif information. Did you run infer_motifs() first?")
+        raise ValueError(
+            "Could not find motif information. Did you run infer_motifs() first?"
+        )
 
     global expression
     global f_and_m
@@ -774,7 +801,7 @@ def determine_significance(
 
     correlation = pd.DataFrame(index=f_and_m.keys())
     correlation = correlation.join(_run_correlation((0, 0, False)))
-    correlation.columns = ['actual_corr']
+    correlation.columns = ["actual_corr"]
     correlation["abs.actual_corr"] = np.abs(correlation["actual_corr"])
 
     std_lst = []
@@ -808,10 +835,7 @@ def determine_significance(
         enumerate(
             pool.imap(
                 _run_correlation,
-                [
-                    (np.random.randint(2 ** 32 - 1), it, True)
-                    for it in range(n_rounds)
-                ],
+                [(np.random.randint(2 ** 32 - 1), it, True) for it in range(n_rounds)],
             )
         ),
         total=n_rounds,
