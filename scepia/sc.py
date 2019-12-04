@@ -14,8 +14,7 @@ from tempfile import NamedTemporaryFile
 import urllib.request
 
 # Typing
-from typing import Optional
-from typing import List
+from typing import List, Optional, Tuple
 
 from adjustText import adjust_text
 from anndata import AnnData
@@ -26,6 +25,7 @@ from gimmemotifs.maelstrom import run_maelstrom
 from gimmemotifs.rank import rankagg
 from gimmemotifs.utils import pfmfile_location
 import matplotlib.pyplot as plt
+from matplotlib import Axes
 import numpy as np
 import pandas as pd
 import scanpy.api as sc
@@ -84,7 +84,9 @@ class MotifAnnData(AnnData):
             self.uns["motif"][k] = pd.DataFrame(self.uns["motif"][k])
 
         # Make sure the cell types are in the correct order
-        self.uns["motif"]["motif_activity"] = self.uns["motif"]["motif_activity"][self.uns["motif"]["cell_types"]]
+        self.uns["motif"]["motif_activity"] = self.uns["motif"]["motif_activity"][
+            self.uns["motif"]["cell_types"]
+        ]
         #  The cell type-specific motif activity needs to be recreated.
         cell_motif_activity = pd.DataFrame(
             self.uns["motif"]["motif_activity"] @ self.obsm["X_cell_types"].T
@@ -108,7 +110,7 @@ class MotifAnnData(AnnData):
         self._restore_additional_data()
 
 
-def read(filename: str):
+def read(filename: str) -> AnnData:
     """Read a MotifAnnData object from a h5ad file.
 
     Parameters
@@ -133,7 +135,7 @@ def motif_mapping(
     pfm: Optional[str] = None,
     genes: Optional[List[str]] = None,
     indirect: Optional[bool] = True,
-):
+) -> pd.DataFrame:
     """Read motif annotation and return as DataFrame.
 
     Parameters
@@ -178,8 +180,12 @@ def motif_mapping(
 
 
 def read_enhancer_data(
-    fname, anno_fname=None, anno_from=None, anno_to=None, scale=False
-):
+    fname: str,
+    anno_fname: Optional[str] = None,
+    anno_from: Optional[str] = None,
+    anno_to: Optional[str] = None,
+    scale: Optional[bool] = False,
+) -> pd.DataFrame:
     if fname.endswith(".txt"):
         df = pd.read_csv(fname, sep="\t", comment="#", index_col=0)
     elif fname.endswith(".csv"):
@@ -206,15 +212,15 @@ def read_enhancer_data(
 
 
 def annotate_with_k27(
-    adata,
-    gene_df,
-    n_neighbors=20,
-    center_expression=True,
-    model="BayesianRidge",
-    use_neighbors=True,
-    use_raw=False,
-    subsample=True,
-):
+    adata: AnnData,
+    gene_df: pd.DataFrame,
+    n_neighbors: Optional[int] = 20,
+    center_expression: Optional[bool] = True,
+    model: Optional[str] = "BayesianRidge",
+    use_neighbors: Optional[bool] = True,
+    use_raw: Optional[bool] = False,
+    subsample: Optional[bool] = True,
+) -> Tuple(pd.DataFrame, pd.DataFrame):
     """Annotate single cell data.
     """
     # Only use genes that overlap
@@ -303,7 +309,10 @@ def annotate_with_k27(
 
 
 def relevant_cell_types(
-    adata: AnnData, gene_df: pd.DataFrame, n_top_genes: int = 1000, cv: int = 5
+    adata: AnnData,
+    gene_df: pd.DataFrame,
+    n_top_genes: Optional[int] = 1000,
+    cv: Optional[int] = 5,
 ) -> List[str]:
     """Select relevant cell types for annotation and motif inference.
 
@@ -382,7 +391,9 @@ def validate_adata(adata: AnnData) -> None:
         raise ValueError("Please run louvain clustering first.")
 
 
-def load_reference_data(config, data_dir):
+def load_reference_data(
+    config: dict, data_dir: str
+) -> Tuple(pd.DataFrame, pd.DataFrame):
     print("loading reference data")
     fname_enhancers = os.path.join(data_dir, config["enhancers"])
     fname_genes = os.path.join(data_dir, config["genes"])
@@ -403,7 +414,7 @@ def load_reference_data(config, data_dir):
     return enhancer_df, gene_df
 
 
-def change_region_size(series, size=200):
+def change_region_size(series: pd.Series, size: Optional[int] = 200) -> pd.Series:
     if not isinstance(series, pd.Series):
         if hasattr(series, "to_series"):
             series = series.to_series()
@@ -421,9 +432,9 @@ def infer_motifs(
     adata: AnnData,
     dataset: str,
     pfm: Optional[str] = None,
-    min_annotated: int = 50,
-    num_enhancers: int = 10000,
-    maelstrom: bool = False,
+    min_annotated: Optional[int] = 50,
+    num_enhancers: Optional[int] = 10000,
+    maelstrom: Optional[bool] = False,
 ) -> None:
     """Infer motif ativity for single cell RNA-seq data.
 
@@ -615,7 +626,7 @@ def correlate_tf_motifs(adata: AnnData) -> None:
     adata.uns["motif"]["factor2motif"] = cor
 
 
-def reassign_cell_types(adata: AnnData, min_annotated: int = 50) -> None:
+def reassign_cell_types(adata: AnnData, min_annotated: Optional[int] = 50) -> None:
     adata.obs["cell_annotation"] = (
         pd.Series(adata.uns["motif"]["cell_types"])
         .iloc[adata.obsm["X_cell_types"].argmax(1)]
@@ -687,7 +698,7 @@ def locate_data(dataset: str, version: Optional[float] = None) -> str:
         raise ValueError(f"Dataset {dataset} not found.")
 
 
-def _run_correlation(args):
+def _run_correlation(args: Tuple[int, int, bool]) -> pd.DataFrame:
     """Calculate correlation between motif activity and factor expression.
     """
     seed, it, do_shuffle = args
@@ -698,12 +709,15 @@ def _run_correlation(args):
     if do_shuffle:
         shape = _corr_adata.uns["motif"]["motif_activity"].shape
         motif_activity = shuffle(
-            _corr_adata.uns["motif"]["motif_activity"].values.flatten(), random_state=seed
+            _corr_adata.uns["motif"]["motif_activity"].values.flatten(),
+            random_state=seed,
         ).reshape(shape[1], shape[0])
 
     else:
         motif_activity = _corr_adata.uns["motif"]["motif_activity"].T.values
-    cell_motif_activity = pd.DataFrame(_corr_adata.obsm["X_cell_types"] @ motif_activity)
+    cell_motif_activity = pd.DataFrame(
+        _corr_adata.obsm["X_cell_types"] @ motif_activity
+    )
     cell_motif_activity.columns = _corr_adata.uns["motif"]["motif_activity"].index
 
     correlation = []
@@ -724,7 +738,10 @@ def _run_correlation(args):
 
 
 def determine_significance(
-    adata: AnnData, n_rounds: Optional[int] = 10000, ncpus: Optional[int] = 12, corr_quantile: Optional[float] = 0.5,
+    adata: AnnData,
+    n_rounds: Optional[int] = 10000,
+    ncpus: Optional[int] = 12,
+    corr_quantile: Optional[float] = 0.5,
 ) -> None:
     """Determine significance of motif-TF correlations by Monte Carlo simulation.
 
@@ -741,7 +758,9 @@ def determine_significance(
     # We use the raw data as it will contain many more genes. Relevant transcription
     # factors are not necessarily called as hyper-variable genes.
     if "motif" not in adata.uns:
-        raise ValueError("Could not find motif information. Did you run infer_motifs() first?")
+        raise ValueError(
+            "Could not find motif information. Did you run infer_motifs() first?"
+        )
 
     global expression
     global f_and_m
@@ -774,7 +793,7 @@ def determine_significance(
 
     correlation = pd.DataFrame(index=f_and_m.keys())
     correlation = correlation.join(_run_correlation((0, 0, False)))
-    correlation.columns = ['actual_corr']
+    correlation.columns = ["actual_corr"]
     correlation["abs.actual_corr"] = np.abs(correlation["actual_corr"])
 
     std_lst = []
@@ -808,10 +827,7 @@ def determine_significance(
         enumerate(
             pool.imap(
                 _run_correlation,
-                [
-                    (np.random.randint(2 ** 32 - 1), it, True)
-                    for it in range(n_rounds)
-                ],
+                [(np.random.randint(2 ** 32 - 1), it, True) for it in range(n_rounds)],
             )
         ),
         total=n_rounds,
@@ -852,15 +868,15 @@ def determine_significance(
 
 
 def plot_volcano_corr(
-    adata,
-    n_anno=40,
-    size_anno=6,
-    palette="viridis",
-    alpha=0.5,
-    linewidth=0,
-    sizes=(1, 30),
+    adata: AnnData,
+    n_anno: Optional[int] = 40,
+    size_anno: Optional[float] = 6,
+    palette: Optional[str] = "viridis",
+    alpha: Optional[float] = 0.5,
+    linewidth: Optional[float] = 0,
+    sizes: Optional[Tuple[int, int]] = (1, 30),
     **kwargs,
-):
+) -> Axes:
     """Volcano plot of significance of motif-TF correlations.
 
     Parameters
