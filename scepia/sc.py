@@ -653,7 +653,7 @@ def add_activity(adata: AnnData):
     f2m = adata.uns["scepia"]["factor2motif"]
     for factor in f2m["factor"].unique():
         motif = (
-            f2m[f2m["factor"] == factor].sort_values("pval").head(1)["scepia"].values[0]
+            f2m[f2m["factor"] == factor].sort_values("pval").head(1)["motif"].values[0]
         )
         gm.fit(adata.obs[motif].values.reshape(-1, 1) * 10)
         adata.obs[f"{factor}_activity"] = gm.predict_proba(adata.obs[[motif]] * 10)[
