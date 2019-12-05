@@ -14,8 +14,7 @@ from tempfile import NamedTemporaryFile
 import urllib.request
 
 # Typing
-from typing import Optional
-from typing import List
+from typing import List, Optional, Tuple
 
 from adjustText import adjust_text
 from anndata import AnnData
@@ -27,6 +26,7 @@ from gimmemotifs.rank import rankagg
 from gimmemotifs.utils import pfmfile_location
 from logure import logger
 import matplotlib.pyplot as plt
+from matplotlib import Axes
 import numpy as np
 import pandas as pd
 import scanpy.api as sc
@@ -112,7 +112,7 @@ class MotifAnnData(AnnData):
         self._restore_additional_data()
 
 
-def read(filename: str):
+def read(filename: str) -> AnnData:
     """Read a MotifAnnData object from a h5ad file.
 
     Parameters
@@ -137,7 +137,7 @@ def motif_mapping(
     pfm: Optional[str] = None,
     genes: Optional[List[str]] = None,
     indirect: Optional[bool] = True,
-):
+) -> pd.DataFrame:
     """Read motif annotation and return as DataFrame.
 
     Parameters
@@ -182,8 +182,12 @@ def motif_mapping(
 
 
 def read_enhancer_data(
-    fname, anno_fname=None, anno_from=None, anno_to=None, scale=False
-):
+    fname: str,
+    anno_fname: Optional[str] = None,
+    anno_from: Optional[str] = None,
+    anno_to: Optional[str] = None,
+    scale: Optional[bool] = False,
+) -> pd.DataFrame:
     if fname.endswith(".txt"):
         df = pd.read_csv(fname, sep="\t", comment="#", index_col=0)
     elif fname.endswith(".csv"):
@@ -210,15 +214,15 @@ def read_enhancer_data(
 
 
 def annotate_with_k27(
-    adata,
-    gene_df,
-    n_neighbors=20,
-    center_expression=True,
-    model="BayesianRidge",
-    use_neighbors=True,
-    use_raw=False,
-    subsample=True,
-):
+    adata: AnnData,
+    gene_df: pd.DataFrame,
+    n_neighbors: Optional[int] = 20,
+    center_expression: Optional[bool] = True,
+    model: Optional[str] = "BayesianRidge",
+    use_neighbors: Optional[bool] = True,
+    use_raw: Optional[bool] = False,
+    subsample: Optional[bool] = True,
+) -> Tuple(pd.DataFrame, pd.DataFrame):
     """Annotate single cell data.
     """
     # Only use genes that overlap
@@ -307,7 +311,10 @@ def annotate_with_k27(
 
 
 def relevant_cell_types(
-    adata: AnnData, gene_df: pd.DataFrame, n_top_genes: int = 1000, cv: int = 5
+    adata: AnnData,
+    gene_df: pd.DataFrame,
+    n_top_genes: Optional[int] = 1000,
+    cv: Optional[int] = 5,
 ) -> List[str]:
     """Select relevant cell types for annotation and motif inference.
 
@@ -386,7 +393,9 @@ def validate_adata(adata: AnnData) -> None:
         raise ValueError("Please run louvain clustering first.")
 
 
-def load_reference_data(config, data_dir):
+def load_reference_data(
+    config: dict, data_dir: str
+) -> Tuple(pd.DataFrame, pd.DataFrame):
     logger.info("loading reference data")
     fname_enhancers = os.path.join(data_dir, config["enhancers"])
     fname_genes = os.path.join(data_dir, config["genes"])
@@ -407,7 +416,7 @@ def load_reference_data(config, data_dir):
     return enhancer_df, gene_df
 
 
-def change_region_size(series, size=200):
+def change_region_size(series: pd.Series, size: Optional[int] = 200) -> pd.Series:
     if not isinstance(series, pd.Series):
         if hasattr(series, "to_series"):
             series = series.to_series()
@@ -425,9 +434,9 @@ def infer_motifs(
     adata: AnnData,
     dataset: str,
     pfm: Optional[str] = None,
-    min_annotated: int = 50,
-    num_enhancers: int = 10000,
-    maelstrom: bool = False,
+    min_annotated: Optional[int] = 50,
+    num_enhancers: Optional[int] = 10000,
+    maelstrom: Optional[bool] = False,
 ) -> None:
     """Infer motif ativity for single cell RNA-seq data.
 
@@ -652,7 +661,7 @@ def add_activity(adata: AnnData):
         ]
 
 
-def assign_cell_types(adata: AnnData, min_annotated: int = 50) -> None:
+def assign_cell_types(adata: AnnData, min_annotated: Optional[int] = 50) -> None:
     adata.obs["cell_annotation"] = (
         pd.Series(adata.uns["scepia"]["cell_types"])
         .iloc[adata.obsm["X_cell_types"].argmax(1)]
@@ -724,7 +733,7 @@ def locate_data(dataset: str, version: Optional[float] = None) -> str:
         raise ValueError(f"Dataset {dataset} not found.")
 
 
-def _run_correlation(args):
+def _run_correlation(args: Tuple[int, int, bool]) -> pd.DataFrame:
     """Calculate correlation between motif activity and factor expression.
     """
     seed, it, do_shuffle = args
@@ -894,15 +903,15 @@ def determine_significance(
 
 
 def plot_volcano_corr(
-    adata,
-    n_anno=40,
-    size_anno=6,
-    palette="viridis",
-    alpha=0.5,
-    linewidth=0,
-    sizes=(1, 30),
+    adata: AnnData,
+    n_anno: Optional[int] = 40,
+    size_anno: Optional[float] = 6,
+    palette: Optional[str] = "viridis",
+    alpha: Optional[float] = 0.5,
+    linewidth: Optional[float] = 0,
+    sizes: Optional[Tuple[int, int]] = (1, 30),
     **kwargs,
-):
+) -> Axes:
     """Volcano plot of significance of motif-TF correlations.
 
     Parameters
