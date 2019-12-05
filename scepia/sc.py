@@ -36,6 +36,7 @@ from sklearn.linear_model import (  # noqa: F401
     LogisticRegression,
     LassoCV,
 )
+from sklearn.mixture import GaussianMixture
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import scale
 from sklearn.utils import shuffle
@@ -587,6 +588,8 @@ def infer_motifs(
 
     correlate_tf_motifs(adata)
 
+    add_activity(adata)
+
     return MotifAnnData(adata)
 
 
@@ -632,6 +635,20 @@ def correlate_tf_motifs(adata: AnnData) -> None:
     cor["putative_role"] = "activator"
     cor.loc[(cor["corr"] + cor["abscorr"]) < 1e-6, "putative_role"] = "repressor"
     adata.uns["motif"]["factor2motif"] = cor
+
+
+def add_activity(adata: AnnData):
+    """Get factor activity"""
+    gm = GaussianMixture(n_components=2, covariance_type="full")
+    f2m = adata.uns["motif"]["factor2motif"]
+    for factor in f2m["factor"].unique():
+        motif = (
+            f2m[f2m["factor"] == factor].sort_values("pval").head(1)["motif"].values[0]
+        )
+        gm.fit(adata.obs[motif].values.reshape(-1, 1) * 10)
+        adata.obs[f"{factor}_activity"] = gm.predict_proba(adata.obs[[motif]] * 10)[
+            :, gm.means_.argmax()
+        ]
 
 
 def assign_cell_types(adata: AnnData, min_annotated: int = 50) -> None:
