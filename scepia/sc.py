@@ -24,10 +24,11 @@ from gimmemotifs.moap import moap
 from gimmemotifs.maelstrom import run_maelstrom
 from gimmemotifs.rank import rankagg
 from gimmemotifs.utils import pfmfile_location
-from logure import logger
+from loguru import logger
 import matplotlib.pyplot as plt
-from matplotlib import Axes
+from matplotlib.axes import Axes
 import numpy as np
+from matplotlib.colors import LinearSegmentedColormap
 import pandas as pd
 import scanpy.api as sc
 import seaborn as sns
@@ -222,7 +223,7 @@ def annotate_with_k27(
     use_neighbors: Optional[bool] = True,
     use_raw: Optional[bool] = False,
     subsample: Optional[bool] = True,
-) -> Tuple(pd.DataFrame, pd.DataFrame):
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Annotate single cell data.
     """
     # Only use genes that overlap
@@ -395,7 +396,7 @@ def validate_adata(adata: AnnData) -> None:
 
 def load_reference_data(
     config: dict, data_dir: str
-) -> Tuple(pd.DataFrame, pd.DataFrame):
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     logger.info("loading reference data")
     fname_enhancers = os.path.join(data_dir, config["enhancers"])
     fname_genes = os.path.join(data_dir, config["genes"])
@@ -792,7 +793,7 @@ def determine_significance(
     # Create DataFrame of gene expression from the raw data in the adata object.
     # We use the raw data as it will contain many more genes. Relevant transcription
     # factors are not necessarily called as hyper-variable genes.
-    if "motif" not in adata.uns:
+    if "scepia" not in adata.uns:
         raise ValueError(
             "Could not find motif information. Did you run infer_motifs() first?"
         )
@@ -904,12 +905,13 @@ def determine_significance(
 
 def plot_volcano_corr(
     adata: AnnData,
+    max_pval: Optional[float] = 0.1,
     n_anno: Optional[int] = 40,
     size_anno: Optional[float] = 6,
-    palette: Optional[str] = "viridis",
-    alpha: Optional[float] = 0.5,
+    palette: Optional[str] = None,
+    alpha: Optional[float] = 0.6,
     linewidth: Optional[float] = 0,
-    sizes: Optional[Tuple[int, int]] = (1, 30),
+    sizes: Optional[Tuple[int, int]] = (1, 20),
     **kwargs,
 ) -> Axes:
     """Volcano plot of significance of motif-TF correlations.
@@ -919,13 +921,23 @@ def plot_volcano_corr(
     adata : :class:`~anndata.AnnData`
         Annotated data matrix.
     """
-    if "motif" not in adata.uns:
+    if "scepia" not in adata.uns:
         raise ValueError("Motif annotation not found. Did you run `infer_motifs()`?")
     if "correlation" not in adata.uns["scepia"]:
         raise ValueError(
             "Motif-TF correlation data not found. Did you run `determine_significance()`?"
         )
 
+    if palette is None:
+        n_colors = len(
+            sns.utils.categorical_order(adata.uns["scepia"]["correlation"]["std"])
+        )
+        cmap = LinearSegmentedColormap.from_list(
+            name="grey_black", colors=["grey", "black"]
+        )
+        palette = sns.color_palette([cmap(i) for i in np.arange(0, 1, 1 / n_colors)])
+    
+    sns.set_style("ticks")
     g = sns.scatterplot(
         data=adata.uns["scepia"]["correlation"],
         y="log_pval",
@@ -939,19 +951,24 @@ def plot_volcano_corr(
         **kwargs,
     )
     g.legend_.remove()
-    factors = adata.uns["scepia"]["correlation"].sort_values("rank_pval").index[:n_anno]
-    x = adata.uns["scepia"]["correlation"].loc[factors, "actual_corr"]
-    y = adata.uns["scepia"]["correlation"].loc[factors, "log_pval"]
-    texts = []
+    g.axhline(y=-np.log10(max_pval), color="grey", zorder=0, ls="dashed")
+    
+    c = adata.uns["scepia"]["correlation"]
+    factors = c[c["pval"] <= max_pval].sort_values("rank_pval").index[:n_anno]
+    x = c.loc[factors, "actual_corr"]
+    y = c.loc[factors, "log_pval"]
 
+    texts = []
     for s, xt, yt in zip(factors, x, y):
         texts.append(plt.text(xt, yt, s, {"size": size_anno}))
-    plt.xlim(-0.8, 0.8)
+
+    x_max = adata.uns["scepia"]["correlation"]["abs.actual_corr"].max() * 1.1
+    plt.xlim(-x_max, x_max)
     adjust_text(
         texts,
         arrowprops=dict(arrowstyle="-", color="black"),
         # expand_points=(1, 1), expand_text=(1, 1),
     )
     plt.xlabel("Correlation (motif vs. factor expression)")
-    plt.ylabel("Significance (log10 p-value)")
+    plt.ylabel("Significance (-log10 p-value)")
     return g
