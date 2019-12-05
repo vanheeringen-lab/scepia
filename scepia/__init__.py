@@ -17,6 +17,9 @@ import numpy as np
 from fluff.fluffio import load_heatmap_data
 from pybedtools import BedTool
 from genomepy import Genome
+from loguru import logger
+
+logger.add(sys.stderr, format="{time} {level} {message}", level="INFO")
 
 CACHE_DIR = os.path.join(xdg.XDG_CACHE_HOME, "scepia")
 if not os.path.exists(CACHE_DIR):
@@ -217,9 +220,9 @@ def link_it_up(
         genome = re.sub(
             r"[^\.]+\.(.*)\.meanstd.*", "\\1", os.path.basename(meanstd_file)
         )
-        sys.stdout.write("Creating link file with genome {}\n".format(genome))
+        logger.info("Creating link file with genome {}\n".format(genome))
         link = create_link_file(meanstd_file, genes_file, genome=genome)
-        sys.stdout.write(f"Saving to {CACHE_DIR}\n")
+        logger.info(f"Saving to {CACHE_DIR}\n")
         link.to_feather(link_file)
     else:
         # Read enhancer to gene links
@@ -264,7 +267,7 @@ def link_it_up(
         .sum()[["contrib"]]
     )
     link = link.join(ens2name).dropna().set_index("name")
-    sys.stderr.write(f"Writing output file {outfile}\n")
+    logger.info(f"Writing output file {outfile}\n")
     link.to_csv(outfile, sep="\t")
 
 
@@ -309,7 +312,7 @@ def generate_signal(bam_file, window, meanstd_file=None, target_file=None, nthre
         meanstd["signal"] = result
 
     # Normalization
-    sys.stderr.write("Normalizing\n")
+    logger.info("Normalizing\n")
     meanstd["signal"] = np.log1p(meanstd["signal"])
     target = np.load(target_file)["target"]
     # np.random.shuffle(target)
