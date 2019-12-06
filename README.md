@@ -30,7 +30,7 @@ $ conda config --add channels conda-forge
 Now you can create an environment for scepia:
 
 ``` 
-conda create -n scepia python=3 adjusttext biofluff gimmemotifs scanpy loguru pyarrow ipywidgets nb_conda
+conda create -n scepia python=3 adjusttext biofluff gimmemotifs scanpy louvain loguru pyarrow ipywidgets nb_conda
 conda activate scepia
 ```
 
