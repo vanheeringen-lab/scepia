@@ -34,11 +34,16 @@ conda create -n scepia python=3 adjusttext biofluff gimmemotifs scanpy
 conda activate scepia
 ```
 
-Install the development version of GimmeMotifs and scepia:
+Install the latest version of GimmeMotifs (which is not yet on biconda):
 
 ```
-pip install git+https://github.com/vanheeringen-lab/gimmemotifs.git@develop
-pip install git+https://github.com/vanheeringen-lab/scepia.git@develop
+pip install gimmemotifs=0.14.0
+```
+
+Install the latest release of scepia:
+
+```
+pip install git+https://github.com/vanheeringen-lab/scepia.git@0.3.0
 ```
 
 ## Usage
