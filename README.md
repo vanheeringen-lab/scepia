@@ -30,14 +30,8 @@ $ conda config --add channels conda-forge
 Now you can create an environment for scepia:
 
 ``` 
-conda create -n scepia python=3 adjusttext biofluff gimmemotifs scanpy louvain loguru pyarrow ipywidgets nb_conda
+conda create -n scepia python=3 adjusttext biofluff gimmemotifs=0.14.0 scanpy louvain loguru pyarrow ipywidgets nb_conda
 conda activate scepia
-```
-
-Install the latest version of GimmeMotifs (which is not yet on biconda):
-
-```
-pip install gimmemotifs=0.14.0
 ```
 
 Install the latest release of scepia:
