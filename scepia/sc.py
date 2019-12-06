@@ -24,9 +24,11 @@ from gimmemotifs.moap import moap
 from gimmemotifs.maelstrom import run_maelstrom
 from gimmemotifs.rank import rankagg
 from gimmemotifs.utils import pfmfile_location
+from loguru import logger
 import matplotlib.pyplot as plt
-from matplotlib import Axes
+from matplotlib.axes import Axes
 import numpy as np
+from matplotlib.colors import LinearSegmentedColormap
 import pandas as pd
 import scanpy.api as sc
 import seaborn as sns
@@ -36,6 +38,7 @@ from sklearn.linear_model import (  # noqa: F401
     LogisticRegression,
     LassoCV,
 )
+from sklearn.mixture import GaussianMixture
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import scale
 from sklearn.utils import shuffle
@@ -67,11 +70,11 @@ class MotifAnnData(AnnData):
     def _remove_additional_data(self) -> None:
         # Motif columns need to be removed, as the hdf5 backend cannot
         # store the data otherwise (header too long).
-        self.obs = self.obs.drop(columns=self.uns["motif"]["motif_activity"].index)
+        self.obs = self.obs.drop(columns=self.uns["scepia"]["motif_activity"].index)
         # DataFrames are not supported in the h5ad format. By converting them
         # dictionaries the can be restored to DataFrame format after loading.
         for k in self.df_keys:
-            self.uns["motif"][k] = self.uns["motif"][k].to_dict()
+            self.uns["scepia"][k] = self.uns["scepia"][k].to_dict()
 
     def _restore_additional_data(self) -> None:
         # In this case it works for an AnnData object that contains no
@@ -81,15 +84,15 @@ class MotifAnnData(AnnData):
 
         # Restore all DataFrames in uns
         for k in self.df_keys:
-            self.uns["motif"][k] = pd.DataFrame(self.uns["motif"][k])
+            self.uns["scepia"][k] = pd.DataFrame(self.uns["scepia"][k])
 
         # Make sure the cell types are in the correct order
-        self.uns["motif"]["motif_activity"] = self.uns["motif"]["motif_activity"][
-            self.uns["motif"]["cell_types"]
+        self.uns["scepia"]["motif_activity"] = self.uns["scepia"]["motif_activity"][
+            self.uns["scepia"]["cell_types"]
         ]
         #  The cell type-specific motif activity needs to be recreated.
         cell_motif_activity = pd.DataFrame(
-            self.uns["motif"]["motif_activity"] @ self.obsm["X_cell_types"].T
+            self.uns["scepia"]["motif_activity"] @ self.obsm["X_cell_types"].T
         ).T
         cell_motif_activity.index = self.obs_names
         self.obs = self.obs.drop(
@@ -122,12 +125,12 @@ def read(filename: str) -> AnnData:
     ------
     MotifAnnData object.
     """
-    print("reading")
+    logger.info("reading .h5ad file")
     adata = MotifAnnData(sc.read(filename))
-    print("done")
-    print("converting")
+    logger.info("done")
+    logger.info("converting and populating scepia motif properties")
     adata._restore_additional_data()
-    print("done")
+    logger.info("done")
     return adata
 
 
@@ -220,7 +223,7 @@ def annotate_with_k27(
     use_neighbors: Optional[bool] = True,
     use_raw: Optional[bool] = False,
     subsample: Optional[bool] = True,
-) -> Tuple(pd.DataFrame, pd.DataFrame):
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Annotate single cell data.
     """
     # Only use genes that overlap
@@ -340,7 +343,7 @@ def relevant_cell_types(
         Cell types ordered by the mean absolute coefficient over clusters in
         descending order.
     """
-    print("selecting reference cell types")
+    logger.info("selecting reference cell types")
     common_genes = list(gene_df.index[gene_df.index.isin(adata.var_names)])
     expression = pd.DataFrame(adata.X, index=adata.obs_names, columns=adata.var_names).T
     expression = expression.loc[common_genes]
@@ -368,10 +371,10 @@ def relevant_cell_types(
         .sort_values(ascending=False)
     )
     cell_types = bla[bla != 0].index
-    print("{} out of {} selected".format(len(cell_types), gene_df.shape[1]))
-    print("top 5:")
+    logger.info("{} out of {} selected".format(len(cell_types), gene_df.shape[1]))
+    logger.info("top 5:")
     for cell_type in cell_types[:5]:
-        print(f" * {cell_type}")
+        logger.info(f" * {cell_type}")
     return list(cell_types)
 
 
@@ -393,8 +396,8 @@ def validate_adata(adata: AnnData) -> None:
 
 def load_reference_data(
     config: dict, data_dir: str
-) -> Tuple(pd.DataFrame, pd.DataFrame):
-    print("loading reference data")
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    logger.info("loading reference data")
     fname_enhancers = os.path.join(data_dir, config["enhancers"])
     fname_genes = os.path.join(data_dir, config["genes"])
     anno_fname = config.get("anno_file")
@@ -473,8 +476,8 @@ def infer_motifs(
     with open(os.path.join(data_dir, "info.yaml")) as f:
         config = load(f)
 
-    print(config)
-    adata.uns["motif"] = {}
+    logger.debug(config)
+    adata.uns["scepia"] = {}
     link_file = os.path.join(data_dir, config.get("link_file"))
 
     gene_map_file = config.get("gene_mapping")
@@ -487,9 +490,9 @@ def infer_motifs(
     # All other cell types will not be used for motif activity and
     # cell type annotation.
     cell_types = relevant_cell_types(adata, gene_df)
-    adata.uns["motif"]["cell_types"] = cell_types
+    adata.uns["scepia"]["cell_types"] = cell_types
 
-    print("linking variable genes to differential enhancers")
+    logger.info("linking variable genes to differential enhancers")
     link = pd.read_feather(link_file)
     if use_name:
         ens2name = pd.read_csv(
@@ -512,12 +515,12 @@ def infer_motifs(
     # Center by mean
     enhancer_df = enhancer_df.sub(enhancer_df.mean(1), axis=0)
     fname = NamedTemporaryFile(delete=False).name
-    print(f"enhancer filename: {fname}")
+    logger.debug(f"enhancer filename: {fname}")
     enhancer_df.to_csv(fname, sep="\t")
-    print("inferring motif activity")
+    logger.info("inferring motif activity")
 
     pfm = pfmfile_location(pfm)
-    adata.uns["motif"]["pfm"] = pfm
+    adata.uns["scepia"]["pfm"] = pfm
 
     if maelstrom:
         run_maelstrom(
@@ -543,8 +546,8 @@ def infer_motifs(
             ncpus=12,
         )
 
-    adata.uns["motif"]["motif_activity"] = motif_act[adata.uns["motif"]["cell_types"]]
-    print("annotating cells")
+    adata.uns["scepia"]["motif_activity"] = motif_act[adata.uns["scepia"]["cell_types"]]
+    logger.info("annotating cells")
     annotation_result, df_coef = annotate_with_k27(
         adata,
         gene_df[cell_types],
@@ -553,23 +556,40 @@ def infer_motifs(
         subsample=False,
         use_raw=False,
     )
-    adata.obsm["X_cell_types"] = df_coef.T[adata.uns["motif"]["cell_types"]].values
+    adata.obsm["X_cell_types"] = df_coef.T[adata.uns["scepia"]["cell_types"]].values
 
-    adata.obs = adata.obs.drop(
-        columns=annotation_result.columns.intersection(adata.obs.columns)
+    #    adata.obs = adata.obs.drop(
+    #        columns=annotation_result.columns.intersection(adata.obs.columns)
+    #    )
+    #    adata.obs = adata.obs.join(annotation_result)
+    #
+    #    count = adata.obs.groupby("cell_annotation").count().iloc[:, 0]
+    #    valid = count[count > min_annotated].index
+    #    adata.obs["cell_annotation"] = adata.obs["cell_annotation"].astype(str)
+    #    adata.obs.loc[
+    #        ~adata.obs["cell_annotation"].isin(valid), "cell_annotation"
+    #    ] = "other"
+
+    assign_cell_types(adata, min_annotated=1)
+    cluster_count = (
+        adata.obs.groupby(["louvain", "cell_annotation"]).count().iloc[:, 0].dropna()
     )
-    adata.obs = adata.obs.join(annotation_result)
+    cluster_anno = (
+        cluster_count.sort_values()
+        .reset_index()
+        .drop_duplicates(subset="louvain", keep="last")
+        .set_index("louvain")
+    )
 
-    count = adata.obs.groupby("cell_annotation").count().iloc[:, 0]
-    valid = count[count > min_annotated].index
-    adata.obs["cell_annotation"] = adata.obs["cell_annotation"].astype(str)
-    adata.obs.loc[
-        ~adata.obs["cell_annotation"].isin(valid), "cell_annotation"
-    ] = "other"
+    cluster_anno = cluster_anno[["cell_annotation"]].rename(
+        columns={"cell_annotation": "cluster_annotation"}
+    )
+    adata.obs = adata.obs.join(cluster_anno, on="louvain")
+    assign_cell_types(adata)
 
-    print("calculating cell-specific motif activity")
+    logger.info("calculating cell-specific motif activity")
     cell_motif_activity = (
-        adata.uns["motif"]["motif_activity"] @ adata.obsm["X_cell_types"].T
+        adata.uns["scepia"]["motif_activity"] @ adata.obsm["X_cell_types"].T
     ).T
     cell_motif_activity.index = adata.obs_names
     adata.obs = adata.obs.drop(
@@ -578,6 +598,8 @@ def infer_motifs(
     adata.obs = adata.obs.join(cell_motif_activity)
 
     correlate_tf_motifs(adata)
+
+    add_activity(adata)
 
     return MotifAnnData(adata)
 
@@ -590,8 +612,8 @@ def correlate_tf_motifs(adata: AnnData) -> None:
     adata : :class:`~anndata.AnnData`
         Annotated data matrix.
     """
-    print("correlating TFs with motifs")
-    m2f = motif_mapping()
+    logger.info("correlating TFs with motifs")
+    m2f = motif_mapping(adata.uns["scepia"]["pfm"])
     if issparse(adata.raw.X):
         expression = pd.DataFrame(
             adata.raw.X.todense(), index=adata.obs_names, columns=adata.raw.var_names
@@ -602,7 +624,7 @@ def correlate_tf_motifs(adata: AnnData) -> None:
         ).T
 
     cor = []
-    for motif in tqdm(adata.uns["motif"]["motif_activity"].index):
+    for motif in tqdm(adata.uns["scepia"]["motif_activity"].index):
         if motif in m2f.index:
             for factor in m2f.loc[motif, "factors"].split(","):
                 if factor in expression.index:
@@ -614,6 +636,11 @@ def correlate_tf_motifs(adata: AnnData) -> None:
                         )
                     )
     cor = pd.DataFrame(cor, columns=["motif", "factor", "corr", "pval"])
+
+    if cor.shape[0] == 0:
+        logger.warn("no factor annotation for motifs found")
+        return
+
     cor["padj"] = multipletests(cor["pval"], method="fdr_bh")[1]
     cor["abscorr"] = np.abs(cor["corr"])
 
@@ -623,12 +650,34 @@ def correlate_tf_motifs(adata: AnnData) -> None:
     # hard to assign a role.
     cor["putative_role"] = "activator"
     cor.loc[(cor["corr"] + cor["abscorr"]) < 1e-6, "putative_role"] = "repressor"
-    adata.uns["motif"]["factor2motif"] = cor
+    adata.uns["scepia"]["factor2motif"] = cor
 
 
-def reassign_cell_types(adata: AnnData, min_annotated: Optional[int] = 50) -> None:
+def add_activity(adata: AnnData):
+    """Get factor activity"""
+    if "scepia" not in adata.uns:
+        raise ValueError(
+            "Could not find motif information. Did you run infer_motifs() first?"
+        )
+    if "factor2motif" not in adata.uns["scepia"]:
+        logger.warn("Cannot determine factor activity without factor annotation")
+        return
+
+    gm = GaussianMixture(n_components=2, covariance_type="full")
+    f2m = adata.uns["scepia"]["factor2motif"]
+    for factor in f2m["factor"].unique():
+        motif = (
+            f2m[f2m["factor"] == factor].sort_values("pval").head(1)["motif"].values[0]
+        )
+        gm.fit(adata.obs[motif].values.reshape(-1, 1) * 10)
+        adata.obs[f"{factor}_activity"] = gm.predict_proba(adata.obs[[motif]] * 10)[
+            :, gm.means_.argmax()
+        ]
+
+
+def assign_cell_types(adata: AnnData, min_annotated: Optional[int] = 50) -> None:
     adata.obs["cell_annotation"] = (
-        pd.Series(adata.uns["motif"]["cell_types"])
+        pd.Series(adata.uns["scepia"]["cell_types"])
         .iloc[adata.obsm["X_cell_types"].argmax(1)]
         .values
     )
@@ -684,11 +733,11 @@ def locate_data(dataset: str, version: Optional[float] = None) -> str:
         datadir = os.path.join(CACHE_DIR, dataset)
         os.mkdir(datadir)
         datafile = os.path.join(datadir, os.path.split(url)[-1])
-        sys.stdout.write(f"Downloading {dataset} data files to {datadir}...\n")
+        logger.info(f"Downloading {dataset} data files to {datadir}...\n")
         with urllib.request.urlopen(url) as response, open(datafile, "wb") as outfile:
             shutil.copyfileobj(response, outfile)
 
-        sys.stdout.write("Extracting files...\n")
+        logger.info("Extracting files...\n")
         tf = tarfile.open(datafile)
         tf.extractall(datadir)
         os.unlink(datafile)
@@ -707,18 +756,18 @@ def _run_correlation(args: Tuple[int, int, bool]) -> pd.DataFrame:
     global _corr_adata
 
     if do_shuffle:
-        shape = _corr_adata.uns["motif"]["motif_activity"].shape
+        shape = _corr_adata.uns["scepia"]["motif_activity"].shape
         motif_activity = shuffle(
-            _corr_adata.uns["motif"]["motif_activity"].values.flatten(),
+            _corr_adata.uns["scepia"]["motif_activity"].values.flatten(),
             random_state=seed,
         ).reshape(shape[1], shape[0])
 
     else:
-        motif_activity = _corr_adata.uns["motif"]["motif_activity"].T.values
+        motif_activity = _corr_adata.uns["scepia"]["motif_activity"].T.values
     cell_motif_activity = pd.DataFrame(
         _corr_adata.obsm["X_cell_types"] @ motif_activity
     )
-    cell_motif_activity.columns = _corr_adata.uns["motif"]["motif_activity"].index
+    cell_motif_activity.columns = _corr_adata.uns["scepia"]["motif_activity"].index
 
     correlation = []
     for factor, motifs in f_and_m.items():
@@ -757,7 +806,7 @@ def determine_significance(
     # Create DataFrame of gene expression from the raw data in the adata object.
     # We use the raw data as it will contain many more genes. Relevant transcription
     # factors are not necessarily called as hyper-variable genes.
-    if "motif" not in adata.uns:
+    if "scepia" not in adata.uns:
         raise ValueError(
             "Could not find motif information. Did you run infer_motifs() first?"
         )
@@ -778,7 +827,7 @@ def determine_significance(
     m_and_f = []
     f_and_m = {}
     m2f = motif_mapping(indirect=False)
-    for motif in adata.uns["motif"]["motif_activity"].index:
+    for motif in adata.uns["scepia"]["motif_activity"].index:
         if motif in m2f.index:
             factors = [
                 f for f in m2f.loc[motif, "factors"].split(",") if f in expression.index
@@ -802,7 +851,7 @@ def determine_significance(
             std_lst.append([m, f])
     std_df = pd.DataFrame(std_lst, columns=["motif", "factor"]).set_index("motif")
     std_df = (
-        pd.DataFrame(adata.uns["motif"]["motif_activity"].std(1))
+        pd.DataFrame(adata.uns["scepia"]["motif_activity"].std(1))
         .join(std_df)
         .groupby("factor")
         .max()
@@ -821,7 +870,7 @@ def determine_significance(
     # Run n_rounds of correlation with shuffled motif activities.
     # The last iteration will be with the real motif activities.
     n_rounds = n_rounds
-    print("running Monte Carlo")
+    logger.info("running Monte Carlo")
     pool = Pool(ncpus)
     for i, corr_iter, in tqdm(
         enumerate(
@@ -864,17 +913,18 @@ def determine_significance(
 
     correlation = correlation.join(tmp_corr[["pval", "log_pval", "rank_pval"]])
 
-    adata.uns["motif"]["correlation"] = correlation
+    adata.uns["scepia"]["correlation"] = correlation
 
 
 def plot_volcano_corr(
     adata: AnnData,
+    max_pval: Optional[float] = 0.1,
     n_anno: Optional[int] = 40,
     size_anno: Optional[float] = 6,
-    palette: Optional[str] = "viridis",
-    alpha: Optional[float] = 0.5,
+    palette: Optional[str] = None,
+    alpha: Optional[float] = 0.6,
     linewidth: Optional[float] = 0,
-    sizes: Optional[Tuple[int, int]] = (1, 30),
+    sizes: Optional[Tuple[int, int]] = (1, 20),
     **kwargs,
 ) -> Axes:
     """Volcano plot of significance of motif-TF correlations.
@@ -884,15 +934,25 @@ def plot_volcano_corr(
     adata : :class:`~anndata.AnnData`
         Annotated data matrix.
     """
-    if "motif" not in adata.uns:
+    if "scepia" not in adata.uns:
         raise ValueError("Motif annotation not found. Did you run `infer_motifs()`?")
-    if "correlation" not in adata.uns["motif"]:
+    if "correlation" not in adata.uns["scepia"]:
         raise ValueError(
             "Motif-TF correlation data not found. Did you run `determine_significance()`?"
         )
 
+    if palette is None:
+        n_colors = len(
+            sns.utils.categorical_order(adata.uns["scepia"]["correlation"]["std"])
+        )
+        cmap = LinearSegmentedColormap.from_list(
+            name="grey_black", colors=["grey", "black"]
+        )
+        palette = sns.color_palette([cmap(i) for i in np.arange(0, 1, 1 / n_colors)])
+
+    sns.set_style("ticks")
     g = sns.scatterplot(
-        data=adata.uns["motif"]["correlation"],
+        data=adata.uns["scepia"]["correlation"],
         y="log_pval",
         x="actual_corr",
         size="std",
@@ -904,19 +964,24 @@ def plot_volcano_corr(
         **kwargs,
     )
     g.legend_.remove()
-    factors = adata.uns["motif"]["correlation"].sort_values("rank_pval").index[:n_anno]
-    x = adata.uns["motif"]["correlation"].loc[factors, "actual_corr"]
-    y = adata.uns["motif"]["correlation"].loc[factors, "log_pval"]
-    texts = []
+    g.axhline(y=-np.log10(max_pval), color="grey", zorder=0, ls="dashed")
 
+    c = adata.uns["scepia"]["correlation"]
+    factors = c[c["pval"] <= max_pval].sort_values("rank_pval").index[:n_anno]
+    x = c.loc[factors, "actual_corr"]
+    y = c.loc[factors, "log_pval"]
+
+    texts = []
     for s, xt, yt in zip(factors, x, y):
         texts.append(plt.text(xt, yt, s, {"size": size_anno}))
-    plt.xlim(-0.8, 0.8)
+
+    x_max = adata.uns["scepia"]["correlation"]["abs.actual_corr"].max() * 1.1
+    plt.xlim(-x_max, x_max)
     adjust_text(
         texts,
         arrowprops=dict(arrowstyle="-", color="black"),
         # expand_points=(1, 1), expand_text=(1, 1),
     )
     plt.xlabel("Correlation (motif vs. factor expression)")
-    plt.ylabel("Significance (log10 p-value)")
+    plt.ylabel("Significance (-log10 p-value)")
     return g

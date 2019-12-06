@@ -48,6 +48,10 @@ Remember to activate the environment before using it
 conda activate scepia
 ```
 
+### Tutorial
+
+A tutorial on how to use `scepia` can be found [here](tutorials/scepia_tutorial.ipynb).
+
 ### Single cell-based motif inference
 
 The [scanpy](https://github.com/theislab/scanpy) package is essential to use scepia. Single cell data should be loaded in an [AnnData](https://anndata.readthedocs.io/en/latest/anndata.AnnData.html) object.
