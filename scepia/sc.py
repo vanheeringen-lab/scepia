@@ -613,7 +613,7 @@ def correlate_tf_motifs(adata: AnnData) -> None:
         Annotated data matrix.
     """
     logger.info("correlating TFs with motifs")
-    m2f = motif_mapping()
+    m2f = motif_mapping(adata.uns["scepia"]["pfm"])
     if issparse(adata.raw.X):
         expression = pd.DataFrame(
             adata.raw.X.todense(), index=adata.obs_names, columns=adata.raw.var_names
@@ -636,6 +636,11 @@ def correlate_tf_motifs(adata: AnnData) -> None:
                         )
                     )
     cor = pd.DataFrame(cor, columns=["motif", "factor", "corr", "pval"])
+
+    if cor.shape[0] == 0:
+        logger.warn("no factor annotation for motifs found")
+        return
+
     cor["padj"] = multipletests(cor["pval"], method="fdr_bh")[1]
     cor["abscorr"] = np.abs(cor["corr"])
 
@@ -650,6 +655,14 @@ def correlate_tf_motifs(adata: AnnData) -> None:
 
 def add_activity(adata: AnnData):
     """Get factor activity"""
+    if "scepia" not in adata.uns:
+        raise ValueError(
+            "Could not find motif information. Did you run infer_motifs() first?"
+        )
+    if "factor2motif" not in adata.uns["scepia"]:
+        logger.warn("Cannot determine factor activity without factor annotation")
+        return
+
     gm = GaussianMixture(n_components=2, covariance_type="full")
     f2m = adata.uns["scepia"]["factor2motif"]
     for factor in f2m["factor"].unique():
@@ -936,7 +949,7 @@ def plot_volcano_corr(
             name="grey_black", colors=["grey", "black"]
         )
         palette = sns.color_palette([cmap(i) for i in np.arange(0, 1, 1 / n_colors)])
-    
+
     sns.set_style("ticks")
     g = sns.scatterplot(
         data=adata.uns["scepia"]["correlation"],
@@ -952,7 +965,7 @@ def plot_volcano_corr(
     )
     g.legend_.remove()
     g.axhline(y=-np.log10(max_pval), color="grey", zorder=0, ls="dashed")
-    
+
     c = adata.uns["scepia"]["correlation"]
     factors = c[c["pval"] <= max_pval].sort_values("rank_pval").index[:n_anno]
     x = c.loc[factors, "actual_corr"]
