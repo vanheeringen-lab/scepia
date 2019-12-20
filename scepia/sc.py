@@ -79,7 +79,7 @@ class MotifAnnData(AnnData):
     def _restore_additional_data(self) -> None:
         # In this case it works for an AnnData object that contains no
         # additional motif information
-        if "motif" not in self.uns:
+        if "scepia" not in self.uns:
             return
 
         # Restore all DataFrames in uns
@@ -217,6 +217,7 @@ def read_enhancer_data(
 def annotate_with_k27(
     adata: AnnData,
     gene_df: pd.DataFrame,
+    cluster: Optional[str] = "louvain",
     n_neighbors: Optional[int] = 20,
     center_expression: Optional[bool] = True,
     model: Optional[str] = "BayesianRidge",
@@ -248,16 +249,16 @@ def annotate_with_k27(
 
     # Get sampled idxs
     N = 100000
-    unique_cell_types = adata.obs["louvain"].unique()
-    counts = adata.obs.groupby("louvain").count().iloc[:, 0].to_dict()
+    unique_cell_types = adata.obs[cluster].unique()
+    counts = adata.obs.groupby(cluster).count().iloc[:, 0].to_dict()
     ids = np.arange(adata.shape[0])
     idxs = []
     for cell_type in unique_cell_types:
         if counts[cell_type] <= N:
-            idx = ids[adata.obs["louvain"] == cell_type]
+            idx = ids[adata.obs[cluster] == cell_type]
         else:
             idx = np.random.choice(
-                ids[adata.obs["louvain"] == cell_type], N, replace=False
+                ids[adata.obs[cluster] == cell_type], N, replace=False
             )
         idxs.extend(idx)
 
@@ -314,15 +315,16 @@ def annotate_with_k27(
 def relevant_cell_types(
     adata: AnnData,
     gene_df: pd.DataFrame,
+    cluster: Optional[str] = "louvain",
     n_top_genes: Optional[int] = 1000,
     cv: Optional[int] = 5,
 ) -> List[str]:
     """Select relevant cell types for annotation and motif inference.
 
     Based on Multitask Lasso regression a subset of features (cell type
-    profile) will be selected. Expression is averaged over louvain clusters
+    profile) will be selected. Expression is averaged over clusters
     and selected features are forced to be the same over all clusters.
-    Requires louvain clustering to be run on the `adata` object.
+    Requires louvain or leiden clustering to be run on the `adata` object.
 
     Parameters
     ----------
@@ -347,7 +349,7 @@ def relevant_cell_types(
     common_genes = list(gene_df.index[gene_df.index.isin(adata.var_names)])
     expression = pd.DataFrame(adata.X, index=adata.obs_names, columns=adata.var_names).T
     expression = expression.loc[common_genes]
-    expression.columns = adata.obs["louvain"]
+    expression.columns = adata.obs[cluster]
     expression = expression.groupby(expression.columns, axis=1).mean()
 
     var_genes = (
@@ -390,8 +392,8 @@ def validate_adata(adata: AnnData) -> None:
     if adata.raw is None:
         raise ValueError("Please save the raw expression data in the .raw property.")
 
-    if "neighbors" not in adata.uns or "louvain" not in adata.obs:
-        raise ValueError("Please run louvain clustering first.")
+    if "neighbors" not in adata.uns or ("louvain" not in adata.obs and "leiden" not in adata.obs):
+        raise ValueError("Please run louvain or leiden clustering first.")
 
 
 def load_reference_data(
@@ -434,6 +436,7 @@ def change_region_size(series: pd.Series, size: Optional[int] = 200) -> pd.Serie
 def infer_motifs(
     adata: AnnData,
     dataset: str,
+    cluster: Optional[str] = "louvain",
     pfm: Optional[str] = None,
     min_annotated: Optional[int] = 50,
     num_enhancers: Optional[int] = 10000,
@@ -452,6 +455,8 @@ def infer_motifs(
         Annotated data matrix.
     dataset : `str`
         Name of reference data set or directory with reference data.
+    cluster : `str`, optional (default: "louvain")
+        Name of the clustering, can be either louvain or leiden.
     pfm : `str`, optional (default: None)
         Name of motif file in PFM format. The GimmeMotifs default is used
         if this parameter is not specified. This can be a filename, or a
@@ -489,7 +494,7 @@ def infer_motifs(
     # Determine relevant reference cell types.
     # All other cell types will not be used for motif activity and
     # cell type annotation.
-    cell_types = relevant_cell_types(adata, gene_df)
+    cell_types = relevant_cell_types(adata, gene_df, cluster=cluster)
     adata.uns["scepia"]["cell_types"] = cell_types
 
     logger.info("linking variable genes to differential enhancers")
@@ -551,6 +556,7 @@ def infer_motifs(
     annotation_result, df_coef = annotate_with_k27(
         adata,
         gene_df[cell_types],
+        cluster=cluster,
         use_neighbors=True,
         model="BayesianRidge",
         subsample=False,
@@ -572,19 +578,19 @@ def infer_motifs(
 
     assign_cell_types(adata, min_annotated=1)
     cluster_count = (
-        adata.obs.groupby(["louvain", "cell_annotation"]).count().iloc[:, 0].dropna()
+        adata.obs.groupby([cluster, "cell_annotation"]).count().iloc[:, 0].dropna()
     )
     cluster_anno = (
         cluster_count.sort_values()
         .reset_index()
-        .drop_duplicates(subset="louvain", keep="last")
-        .set_index("louvain")
+        .drop_duplicates(subset=cluster, keep="last")
+        .set_index(cluster)
     )
 
     cluster_anno = cluster_anno[["cell_annotation"]].rename(
         columns={"cell_annotation": "cluster_annotation"}
     )
-    adata.obs = adata.obs.join(cluster_anno, on="louvain")
+    adata.obs = adata.obs.join(cluster_anno, on=cluster)
     assign_cell_types(adata)
 
     logger.info("calculating cell-specific motif activity")
