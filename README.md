@@ -37,7 +37,7 @@ conda activate scepia
 Install the latest release of scepia:
 
 ```
-pip install git+https://github.com/vanheeringen-lab/scepia.git@0.3.0
+pip install git+https://github.com/vanheeringen-lab/scepia.git@0.3.1
 ```
 
 ## Usage
