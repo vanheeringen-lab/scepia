@@ -13,7 +13,7 @@ The current reference is based on H3K27ac profiles from ENCODE.
 
 * Python >= 3.6
 * Scanpy
-* GimmeMotifs (development branch)
+* GimmeMotifs
 
 ## Installation
 
@@ -30,7 +30,7 @@ $ conda config --add channels conda-forge
 Now you can create an environment for scepia:
 
 ``` 
-conda create -n scepia python=3 adjusttext biofluff gimmemotifs=0.14.0 scanpy louvain loguru pyarrow ipywidgets nb_conda
+conda create -n scepia python=3 adjusttext biofluff gimmemotifs=0.14.1 scanpy louvain loguru pyarrow ipywidgets nb_conda
 conda activate scepia
 ```
 
