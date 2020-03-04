@@ -9,6 +9,8 @@ SCEPIA predicts transcription factor motif activity from single cell RNA-seq dat
 
 The current reference is based on H3K27ac profiles from ENCODE.
 
+So sorry, but only human  is supported for now.
+
 ## Requirements
 
 * Python >= 3.6
