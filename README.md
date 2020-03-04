@@ -30,7 +30,7 @@ $ conda config --add channels conda-forge
 Now you can create an environment for scepia:
 
 ``` 
-conda create -n scepia python=3 adjusttext biofluff gimmemotifs=0.14.1 scanpy louvain loguru pyarrow ipywidgets nb_conda
+conda create -n scepia python=3 adjusttext biofluff gimmemotifs=0.14.3 scanpy louvain loguru pyarrow ipywidgets nb_conda
 conda activate scepia
 ```
 
@@ -53,7 +53,7 @@ A tutorial on how to use `scepia` can be found [here](tutorials/scepia_tutorial.
 
 ### Single cell-based motif inference
 
-The [scanpy](https://github.com/theislab/scanpy) package is essential to use scepia. Single cell data should be loaded in an [AnnData](https://anndata.readthedocs.io/en/latest/anndata.AnnData.html) object.
+The [scanpy](https://github.com/theislab/scanpy) package is required to use scepia. Single cell data should be loaded in an [AnnData](https://anndata.readthedocs.io/en/latest/anndata.AnnData.html) object.
 Make sure of the following:
 
 * Gene names are used in `adata.var_names`, not Ensembl identifiers or any other gene identifiers.
