@@ -559,12 +559,11 @@ def infer_motifs(
         run_maelstrom(
             fname,
             "hg38",
-            "tmp.lala",
-            methods=["bayesianridge", "lightningregressor", "xgboost"],
+            "scepia.maelstrom",
         )
 
         motif_act = pd.read_csv(
-            os.path.join("tmp.lala", "final.out.csv"),
+            os.path.join("scepia.maelstrom", "final.out.csv"),
             sep="\t",
             comment="#",
             index_col=0,
