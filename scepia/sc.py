@@ -5,32 +5,28 @@
 # distribution.
 from collections import Counter
 import inspect
-from multiprocessing import Pool
+
 import os
 import shutil
 import sys
 import tarfile
 from tempfile import NamedTemporaryFile
 import urllib.request
-
+from time import sleep
 # Typing
 from typing import List, Optional, Tuple
 
 from adjustText import adjust_text
 from anndata import AnnData
 from appdirs import user_cache_dir
-from gimmemotifs.motif import read_motifs
-from gimmemotifs.moap import moap
-from gimmemotifs.maelstrom import run_maelstrom
-from gimmemotifs.rank import rankagg
-from gimmemotifs.utils import pfmfile_location
+
 from loguru import logger
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 import pandas as pd
-import scanpy.api as sc
+import scanpy as sc
 import seaborn as sns
 from sklearn.linear_model import MultiTaskLassoCV
 from sklearn.linear_model import (  # noqa: F401
@@ -48,6 +44,12 @@ from statsmodels.stats.multitest import multipletests
 from tqdm.auto import tqdm
 from yaml import load
 
+from gimmemotifs.moap import moap
+from gimmemotifs.maelstrom import run_maelstrom
+from gimmemotifs.motif import read_motifs
+from gimmemotifs.rank import rankagg
+from gimmemotifs.utils import pfmfile_location
+from multiprocessing import Pool
 
 CACHE_DIR = os.path.join(user_cache_dir("scepia"))
 expression = None
@@ -70,11 +72,18 @@ class MotifAnnData(AnnData):
     def _remove_additional_data(self) -> None:
         # Motif columns need to be removed, as the hdf5 backend cannot
         # store the data otherwise (header too long).
-        self.obs = self.obs.drop(columns=self.uns["scepia"]["motif_activity"].index)
+        self.obs = self.obs.drop(
+            columns=self.uns['scepia'].get('motif_activity', pd.DataFrame()).columns.intersection(self.obs.columns)
+        )
         # DataFrames are not supported in the h5ad format. By converting them
         # dictionaries the can be restored to DataFrame format after loading.
         for k in self.df_keys:
-            self.uns["scepia"][k] = self.uns["scepia"][k].to_dict()
+            if k not in self.uns['scepia']:
+                continue
+            logger.info(f"updating {k}")
+            self.uns["scepia"][f"{k}_columns"] = self.uns["scepia"][k].columns.tolist()
+            self.uns["scepia"][f"{k}_index"] = self.uns["scepia"][k].index.tolist()
+            self.uns["scepia"][k] = self.uns["scepia"][k].to_numpy()
 
     def _restore_additional_data(self) -> None:
         # In this case it works for an AnnData object that contains no
@@ -83,21 +92,41 @@ class MotifAnnData(AnnData):
             return
 
         # Restore all DataFrames in uns
+        logger.info("Restoring DataFrames")
         for k in self.df_keys:
-            self.uns["scepia"][k] = pd.DataFrame(self.uns["scepia"][k])
+            if k not in self.uns['scepia']:
+                continue
+            self.uns["scepia"][k] = pd.DataFrame(
+                self.uns["scepia"][k],
+                index=self.uns["scepia"][f"{k}_index"],
+                columns=self.uns["scepia"][f"{k}_columns"],
+            )
+
+        for k in self.df_keys + ["cell_types"]:
+            if k not in self.uns['scepia']:
+                logger.warning("scepia information is not complete")
+                return
 
         # Make sure the cell types are in the correct order
+        logger.info("Sorting cell types")
         self.uns["scepia"]["motif_activity"] = self.uns["scepia"]["motif_activity"][
             self.uns["scepia"]["cell_types"]
         ]
+
+        if "X_cell_types" not in self.obsm:
+            logger.warning("scepia information is not complete")  
+
         #  The cell type-specific motif activity needs to be recreated.
+        logger.info("Recreate motif activity")
         cell_motif_activity = pd.DataFrame(
             self.uns["scepia"]["motif_activity"] @ self.obsm["X_cell_types"].T
         ).T
+        logger.info("Drop columns")
         cell_motif_activity.index = self.obs_names
         self.obs = self.obs.drop(
             columns=cell_motif_activity.columns.intersection(self.obs.columns)
         )
+        logger.info("Add motif activity to obs")
         self.obs = self.obs.join(cell_motif_activity)
 
     def write(self, *args, **kwargs) -> None:
@@ -362,20 +391,16 @@ def relevant_cell_types(
     X = gene_df.loc[var_genes]
     g = MultiTaskLassoCV(cv=cv, n_jobs=24, selection="random")
     g.fit(X, expression)
-    bla = (
+    coefs = (
         pd.DataFrame(g.coef_, index=expression.columns, columns=X.columns)
-        .sum(0)
-        .sort_values()
     )
-    bla = (
-        np.abs(pd.DataFrame(g.coef_, index=expression.columns, columns=X.columns))
-        .sum(0)
-        .sort_values(ascending=False)
-    )
-    cell_types = bla[bla != 0].index
+    top = list(coefs.idxmax(axis=1).value_counts().sort_values().tail(5).index)
+    abs_sum_coefs = np.abs(coefs).sum(0).sort_values(ascending=False)
+
+    cell_types = abs_sum_coefs[abs_sum_coefs != 0].index
     logger.info("{} out of {} selected".format(len(cell_types), gene_df.shape[1]))
-    logger.info("top 5:")
-    for cell_type in cell_types[:5]:
+    logger.info(f"top {len(top)}:")
+    for cell_type in top:
         logger.info(f" * {cell_type}")
     return list(cell_types)
 
@@ -437,6 +462,7 @@ def infer_motifs(
     adata: AnnData,
     dataset: str,
     cluster: Optional[str] = "louvain",
+    n_top_genes: Optional[int] = 1000,
     pfm: Optional[str] = None,
     min_annotated: Optional[int] = 50,
     num_enhancers: Optional[int] = 10000,
@@ -457,6 +483,10 @@ def infer_motifs(
         Name of reference data set or directory with reference data.
     cluster : `str`, optional (default: "louvain")
         Name of the clustering, can be either louvain or leiden.
+    n_top_genes : `int`, optional (default: 1000)
+        Number of variable genes that is used. If `n_top_genes` is greater than the
+        number of hypervariable genes in `adata` then all variable genes are
+        used.
     pfm : `str`, optional (default: None)
         Name of motif file in PFM format. The GimmeMotifs default is used
         if this parameter is not specified. This can be a filename, or a
@@ -494,7 +524,7 @@ def infer_motifs(
     # Determine relevant reference cell types.
     # All other cell types will not be used for motif activity and
     # cell type annotation.
-    cell_types = relevant_cell_types(adata, gene_df, cluster=cluster)
+    cell_types = relevant_cell_types(adata, gene_df, cluster=cluster, n_top_genes=n_top_genes)
     adata.uns["scepia"]["cell_types"] = cell_types
 
     logger.info("linking variable genes to differential enhancers")
@@ -520,13 +550,11 @@ def infer_motifs(
     # Center by mean
     enhancer_df = enhancer_df.sub(enhancer_df.mean(1), axis=0)
     fname = NamedTemporaryFile(delete=False).name
-    logger.debug(f"enhancer filename: {fname}")
     enhancer_df.to_csv(fname, sep="\t")
     logger.info("inferring motif activity")
 
     pfm = pfmfile_location(pfm)
     adata.uns["scepia"]["pfm"] = pfm
-
     if maelstrom:
         run_maelstrom(
             fname,
@@ -798,14 +826,14 @@ def determine_significance(
     ncpus: Optional[int] = 12,
     corr_quantile: Optional[float] = 0.5,
 ) -> None:
-    """Determine significance of motif-TF correlations by Monte Carlo simulation.
+    """Determine significance of motif-TF correlations by permutation testing.
 
     Parameters
     ----------
     adata : :class:`~anndata.AnnData`
         Annotated data matrix.
     n_rounds : `int`, optional
-        Number of Monte Carlo simulations. The default is 10000.
+        Number of permutations. The default is 10000.
     ncpus : `int`, optional
         Number of threads to use.
     """
@@ -876,7 +904,7 @@ def determine_significance(
     # Run n_rounds of correlation with shuffled motif activities.
     # The last iteration will be with the real motif activities.
     n_rounds = n_rounds
-    logger.info("running Monte Carlo")
+    logger.info("running permutations")
     pool = Pool(ncpus)
     for i, corr_iter, in tqdm(
         enumerate(
@@ -991,3 +1019,26 @@ def plot_volcano_corr(
     plt.xlabel("Correlation (motif vs. factor expression)")
     plt.ylabel("Significance (-log10 p-value)")
     return g
+
+
+def do_something(i):
+    sleep(np.random.randint(10))
+    return i ** 2
+
+
+def test(n_rounds=100):
+    result = []
+    pool = Pool(12)
+    for i, corr_iter, in tqdm(
+        enumerate(
+            pool.imap(
+                do_something,
+                [np.random.randint(2 ** 32 - 1) for _ in range(n_rounds)],
+            )
+        ),
+        total=n_rounds,
+    ):
+        result.append((i, corr_iter))
+
+    pool.close()
+    return result
