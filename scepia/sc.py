@@ -560,6 +560,7 @@ def infer_motifs(
             fname,
             "hg38",
             "scepia.maelstrom",
+            center=True,
         )
 
         motif_act = pd.read_csv(
@@ -955,9 +956,9 @@ def plot_volcano_corr(
     n_anno: Optional[int] = 40,
     size_anno: Optional[float] = 6,
     palette: Optional[str] = None,
-    alpha: Optional[float] = 0.6,
+    alpha: Optional[float] = 0.8,
     linewidth: Optional[float] = 0,
-    sizes: Optional[Tuple[int, int]] = (1, 20),
+    sizes: Optional[Tuple[int, int]] = (5, 25),
     **kwargs,
 ) -> Axes:
     """Volcano plot of significance of motif-TF correlations.
@@ -974,15 +975,15 @@ def plot_volcano_corr(
             "Motif-TF correlation data not found. Did you run `determine_significance()`?"
         )
 
-    if palette is None:
-        n_colors = len(
-            sns.utils.categorical_order(adata.uns["scepia"]["correlation"]["std"])
-        )
-        cmap = LinearSegmentedColormap.from_list(
-            name="grey_black", colors=["grey", "black"]
-        )
-        palette = sns.color_palette([cmap(i) for i in np.arange(0, 1, 1 / n_colors)])
-
+#    if palette is None:
+#        n_colors = len(
+#            sns.utils.categorical_order(adata.uns["scepia"]["correlation"]["std"])
+#        )
+#        cmap = LinearSegmentedColormap.from_list(
+#            name="grey_black", colors=["grey", "black"]
+#        )
+#        palette = sns.color_palette([cmap(i) for i in np.arange(0, 1, 1 / n_colors)])
+#
     sns.set_style("ticks")
     g = sns.scatterplot(
         data=adata.uns["scepia"]["correlation"],
