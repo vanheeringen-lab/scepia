@@ -302,7 +302,7 @@ def annotate_with_k27(
             if use_neighbors:
                 my_neighbors = (
                     pd.DataFrame(
-                        (adata.uns["neighbors"]["connectivities"][i] != 0).todense()
+                        (adata.obsp["connectivities"][i] != 0).todense()
                     )
                     .iloc[0]
                     .values
@@ -559,16 +559,18 @@ def infer_motifs(
         run_maelstrom(
             fname,
             "hg38",
-            "tmp.lala",
-            methods=["bayesianridge", "lightningregressor", "xgboost"],
+            "scepia.maelstrom",
+            center=True,
+            filter_redundant=False,
         )
 
         motif_act = pd.read_csv(
-            os.path.join("tmp.lala", "final.out.csv"),
+            os.path.join("scepia.maelstrom", "final.out.txt"),
             sep="\t",
             comment="#",
             index_col=0,
         )
+        motif_act.columns = motif_act.columns.str.replace("z-score\s+", "")
     else:
         motif_act = moap(
             fname,
@@ -956,9 +958,9 @@ def plot_volcano_corr(
     n_anno: Optional[int] = 40,
     size_anno: Optional[float] = 6,
     palette: Optional[str] = None,
-    alpha: Optional[float] = 0.6,
+    alpha: Optional[float] = 0.8,
     linewidth: Optional[float] = 0,
-    sizes: Optional[Tuple[int, int]] = (1, 20),
+    sizes: Optional[Tuple[int, int]] = (5, 25),
     **kwargs,
 ) -> Axes:
     """Volcano plot of significance of motif-TF correlations.
@@ -975,15 +977,15 @@ def plot_volcano_corr(
             "Motif-TF correlation data not found. Did you run `determine_significance()`?"
         )
 
-    if palette is None:
-        n_colors = len(
-            sns.utils.categorical_order(adata.uns["scepia"]["correlation"]["std"])
-        )
-        cmap = LinearSegmentedColormap.from_list(
-            name="grey_black", colors=["grey", "black"]
-        )
-        palette = sns.color_palette([cmap(i) for i in np.arange(0, 1, 1 / n_colors)])
-
+#    if palette is None:
+#        n_colors = len(
+#            sns.utils.categorical_order(adata.uns["scepia"]["correlation"]["std"])
+#        )
+#        cmap = LinearSegmentedColormap.from_list(
+#            name="grey_black", colors=["grey", "black"]
+#        )
+#        palette = sns.color_palette([cmap(i) for i in np.arange(0, 1, 1 / n_colors)])
+#
     sns.set_style("ticks")
     g = sns.scatterplot(
         data=adata.uns["scepia"]["correlation"],
@@ -1042,3 +1044,13 @@ def test(n_rounds=100):
 
     pool.close()
     return result
+
+
+def full_analysis(infile, outfile):
+    """
+    Run full SCEPIA analysis on h5ad infile.
+    """
+    adata = sc.read(infile)
+    adata = infer_motifs(adata, dataset="ENCODE")
+    determine_significance(adata)
+    adata.write(outfile)
