@@ -302,7 +302,7 @@ def annotate_with_k27(
             if use_neighbors:
                 my_neighbors = (
                     pd.DataFrame(
-                        (adata.uns["neighbors"]["connectivities"][i] != 0).todense()
+                        (adata.obsp["connectivities"][i] != 0).todense()
                     )
                     .iloc[0]
                     .values
@@ -561,14 +561,16 @@ def infer_motifs(
             "hg38",
             "scepia.maelstrom",
             center=True,
+            filter_redundant=False,
         )
 
         motif_act = pd.read_csv(
-            os.path.join("scepia.maelstrom", "final.out.csv"),
+            os.path.join("scepia.maelstrom", "final.out.txt"),
             sep="\t",
             comment="#",
             index_col=0,
         )
+        motif_act.columns = motif_act.columns.str.replace("z-score\s+", "")
     else:
         motif_act = moap(
             fname,
@@ -1042,3 +1044,13 @@ def test(n_rounds=100):
 
     pool.close()
     return result
+
+
+def full_analysis(infile, outfile):
+    """
+    Run full SCEPIA analysis on h5ad infile.
+    """
+    adata = sc.read(infile)
+    adata = infer_motifs(adata, dataset="ENCODE")
+    determine_significance(adata)
+    adata.write(outfile)

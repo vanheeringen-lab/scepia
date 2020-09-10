@@ -7,6 +7,8 @@ DESCRIPTION = "Inference of transcription factor motif activity from single cell
 with open("README.md") as f:
     long_description = f.read()
 
+entry_points = {"console_scripts": ["scepia=scepia.cli:cli"]}
+
 setup(
     name="scepia",
     version=versioneer.get_version(),
@@ -18,7 +20,7 @@ setup(
     url="https://github.com/vanheeringen-lab/scepia/",
     license="MIT",
     packages=find_packages(),
-    scripts=["scripts/scepia"],
+    entry_points=entry_points,
     include_package_data=True,
     zip_safe=False,
     classifiers=[
