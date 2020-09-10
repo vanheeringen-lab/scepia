@@ -32,14 +32,14 @@ $ conda config --add channels conda-forge
 Now you can create an environment for scepia:
 
 ``` 
-conda create -n scepia python=3 libgcc-ng=9.2.0=hdf63c60_0 adjusttext biofluff gimmemotifs=0.14.3 scanpy louvain loguru pyarrow ipywidgets nb_conda
+conda create -n scepia python=3 adjusttext biofluff gimmemotifs scanpy louvain loguru pyarrow ipywidgets nb_conda
 conda activate scepia
 ```
 
 Install the latest release of scepia:
 
 ```
-pip install git+https://github.com/vanheeringen-lab/scepia.git@0.3.1
+pip install git+https://github.com/vanheeringen-lab/scepia.git@0.3.4
 ```
 
 ## Usage
@@ -92,6 +92,6 @@ To use, an H3K27ac BAM file is needed (mapped to hg38). The `-N` argument
 specifies the number of threads to use.
 
 ```
-scepia <bamfile> <outfile> -N 12
+scepia area27 <bamfile> <outfile> -N 12
 ```
 
