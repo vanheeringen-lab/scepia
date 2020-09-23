@@ -426,7 +426,7 @@ def validate_adata(adata: AnnData) -> None:
 def load_reference_data(
     config: dict, data_dir: str, reftype: Optional[str] = "gene"
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    logger.info("Loading reference data,")
+    logger.info("Loading reference data.")
     fname_enhancers = os.path.join(data_dir, config["enhancers"])
     fname_genes = os.path.join(data_dir, config["genes"])
     anno_fname = config.get("anno_file")
@@ -924,6 +924,7 @@ def full_analysis(
     adata = sc.read(infile)
 
     logger.info(f"{adata.shape[0]} cells x {adata.shape[1]} genes")
+    logger.info("(Cells and genes mixed up? Try transposing your data.)")
     if adata.raw is None or "connectivities" not in adata.obsp:
         logger.info("No processed information found (connectivity graph, clustering).")
         logger.info("Running basic analysis.")
