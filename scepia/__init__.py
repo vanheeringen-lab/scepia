@@ -21,7 +21,9 @@ from genomepy import Genome
 from loguru import logger
 
 logger.remove()
-logger.add(sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss} - {level} - {message}", level="INFO")
+logger.add(
+    sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss} - {level} - {message}", level="INFO"
+)
 
 CACHE_DIR = os.path.join(xdg.XDG_CACHE_HOME, "scepia")
 if not os.path.exists(CACHE_DIR):

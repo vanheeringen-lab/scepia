@@ -98,6 +98,18 @@ class MotifAnnData(AnnData):
                 logger.warning("scepia information is not complete")
                 return
 
+        for k in self.df_keys:
+            for col in self.uns["scepia"][k].columns:
+                try:
+                    self.uns["scepia"][k][col] = self.uns["scepia"][k][col].astype(
+                        float
+                    )
+                except Exception:
+                    pass
+
+        # make sure index has the correct name
+        self.uns["scepia"]["correlation"].index.rename("factor", inplace=True)
+
         # Make sure the cell types are in the correct order
         logger.info("Sorting cell types")
         self.uns["scepia"]["motif_activity"] = self.uns["scepia"]["motif_activity"][
@@ -853,8 +865,10 @@ def _simple_preprocess(adata: AnnData,) -> AnnData:
     sc.pp.filter_cells(adata, min_genes=200)
     sc.pp.filter_genes(adata, min_cells=3)
 
-    adata.var['mt'] = adata.var_names.str.startswith('MT-')
-    sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], percent_top=None, log1p=False, inplace=True)
+    adata.var["mt"] = adata.var_names.str.startswith("MT-")
+    sc.pp.calculate_qc_metrics(
+        adata, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
+    )
 
     adata = adata[adata.obs.n_genes_by_counts < 2500, :]
     adata = adata[adata.obs.pct_counts_mt < 5, :]
@@ -935,4 +949,4 @@ def full_analysis(
     adata.write(outfile)
 
     fig = plot(adata, n_anno=40)
-    fig.savefig("volcano.png", dpi=600)
+    fig.savefig(os.join(outdir, "volcano.png"), dpi=600)
