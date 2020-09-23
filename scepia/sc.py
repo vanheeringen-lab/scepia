@@ -862,6 +862,13 @@ def assign_cell_types(adata: AnnData, min_annotated: Optional[int] = 50) -> None
 
 
 def _simple_preprocess(adata: AnnData,) -> AnnData:
+
+    logger.info("Running a simple preprocessing pipeline based on scanpy docs.")
+    logger.info(
+        "To control this process, run the analysis in scanpy, save the h5ad file and analyze this file with scepia."
+    )
+
+    logger.info("Filtering cells and genes.")
     sc.pp.filter_cells(adata, min_genes=200)
     sc.pp.filter_genes(adata, min_cells=3)
 
@@ -873,21 +880,29 @@ def _simple_preprocess(adata: AnnData,) -> AnnData:
     adata = adata[adata.obs.n_genes_by_counts < 2500, :]
     adata = adata[adata.obs.pct_counts_mt < 5, :]
 
+    logger.info("Normalizing and log-transforming.")
     sc.pp.normalize_total(adata, target_sum=1e4)
 
     sc.pp.log1p(adata)
     adata.raw = adata
 
+    logger.info("Selecting highly variable genes.")
     sc.pp.highly_variable_genes(adata, n_top_genes=2000)
     adata = adata[:, adata.var.highly_variable]
 
+    logger.info("Regressing out counts and mitochondrial percentage.")
     sc.pp.regress_out(adata, ["total_counts", "pct_counts_mt"])
 
+    logger.info("Scaling.")
     sc.pp.scale(adata, max_value=10)
 
+    logger.info("Running PCA.")
     sc.tl.pca(adata, svd_solver="arpack")
 
+    logger.info("Running nearest neighbors.")
     sc.pp.neighbors(adata, n_neighbors=10, n_pcs=40)
+
+    logger.info("Running Leiden clustering.")
     sc.tl.leiden(adata)
     return adata
 
