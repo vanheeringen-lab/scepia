@@ -4,14 +4,9 @@
 # the terms of the MIT License, see the file LICENSE included with this
 # distribution.
 from collections import Counter
-import inspect
-
 import os
-import shutil
 import sys
-import tarfile
 from tempfile import NamedTemporaryFile, TemporaryDirectory
-import urllib.request
 
 # Typing
 from typing import List, Optional, Tuple
@@ -46,7 +41,7 @@ from gimmemotifs.motif import read_motifs
 from gimmemotifs.utils import pfmfile_location
 from scepia import __version__
 from scepia.plot import plot
-from scepia.util import fast_corr
+from scepia.util import fast_corr, locate_data
 
 CACHE_DIR = os.path.join(user_cache_dir("scepia"))
 
@@ -392,7 +387,7 @@ def relevant_cell_types(
 
     cell_types = abs_sum_coefs[abs_sum_coefs != 0].index
     logger.info("{} out of {} selected".format(len(cell_types), gene_df.shape[1]))
-    logger.info(f"top {len(top)}:")
+    logger.info(f"Top {len(top)}:")
     for cell_type in top:
         logger.info(f" * {cell_type}")
     return list(cell_types)
@@ -419,7 +414,7 @@ def validate_adata(adata: AnnData) -> None:
 def load_reference_data(
     config: dict, data_dir: str, reftype: Optional[str] = "gene"
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    logger.info("loading reference data")
+    logger.info("Loading reference data,")
     fname_enhancers = os.path.join(data_dir, config["enhancers"])
     fname_genes = os.path.join(data_dir, config["genes"])
     anno_fname = config.get("anno_file")
@@ -482,7 +477,7 @@ def annotate_cells(
             adata, gene_df, cluster=cluster, n_top_genes=n_top_genes
         )
     else:
-        logger.info("selecting all reference cell types")
+        logger.info("Selecting all reference cell types.")
         cell_types = gene_df.columns
 
     if "scepia" not in adata.uns:
@@ -490,7 +485,7 @@ def annotate_cells(
 
     adata.uns["scepia"]["cell_types"] = cell_types
 
-    logger.info("annotating cells")
+    logger.info("Annotating cells.")
     annotation_result, df_coef = annotate_with_k27(
         adata,
         gene_df[cell_types],
@@ -589,7 +584,7 @@ def infer_motifs(
             min_annotated=min_annotated,
         )
 
-    logger.info("linking variable genes to differential enhancers")
+    logger.info("Linking variable genes to differential enhancers.")
     gene_map_file = config.get("gene_mapping")
     if gene_map_file is not None:
         gene_map_file = os.path.join(data_dir, gene_map_file)
@@ -683,6 +678,16 @@ def correlate_tf_motifs(
     ----------
     adata : :class:`~anndata.AnnData`
         Annotated data matrix.
+    n_sketch : `int`, optional (default: 2500)
+        If the number of cells is higher than `n_sketch`, use geometric
+        sketching (Hie et al. 2019) to select a subset of `n_sketch`
+        cells. This subset will be used to calculate the correlation beteen
+        motif activity and transcription factor expression.
+    n_permutations : `int`, optional (default: 100000)
+        Number of permutations that is used to calculate the p-value. Can be
+        decreased for quicker run-time, but should probably not be below 10000.
+    indirect : `bool`, optional (default: True)
+        Include indirect TF to motif assignments.
     """
     logger.info("correlating motif activity with factors")
     if indirect:
@@ -844,67 +849,39 @@ def assign_cell_types(adata: AnnData, min_annotated: Optional[int] = 50) -> None
     ] = "other"
 
 
-def locate_data(dataset: str, version: Optional[float] = None) -> str:
-    """Locate reference data for cell type annotation.
+def _simple_preprocess(adata: AnnData,) -> AnnData:
+    sc.pp.filter_cells(adata, min_genes=200)
+    sc.pp.filter_genes(adata, min_cells=3)
 
-    Data set will be downloaded if it can not be found.
+    adata.var['mt'] = adata.var_names.str.startswith('MT-')
+    sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], percent_top=None, log1p=False, inplace=True)
 
-    Parameters
-    ----------
-    dataset : `str`
-        Name of dataset. Can be a local directory.
-    version : `float`, optional
-        Version of dataset
+    adata = adata[adata.obs.n_genes_by_counts < 2500, :]
+    adata = adata[adata.obs.pct_counts_mt < 5, :]
 
-    Returns
-    -------
-    `str`
-        Absolute path to data set directory.
-    """
-    for datadir in [os.path.expanduser(dataset), os.path.join(CACHE_DIR, dataset)]:
-        if os.path.isdir(datadir):
-            if os.path.exists(os.path.join(datadir, "info.yaml")):
-                return datadir
-            else:
-                raise ValueError(f"info.yaml not found in directory {datadir}")
+    sc.pp.normalize_total(adata, target_sum=1e4)
 
-    # Data file can not be found
-    # Read the data directory from the installed module
-    # Once the github is public, it can be read from the github repo directly
-    install_dir = os.path.dirname(
-        os.path.abspath(inspect.getfile(inspect.currentframe()))
-    )
-    df = pd.read_csv(os.path.join(install_dir, "../data/data_directory.txt"), sep="\t")
-    df = df[df["name"] == dataset]
-    if df.shape[0] > 0:
-        if version is None:
-            url = df.sort_values("version").tail(1)["url"].values[0]
-        else:
-            url_df = df.loc[df["version"] == version]
-            if url_df.shape[0] > 0:
-                url = url_df["url"].values[0]
-            else:
-                raise ValueError(f"Dataset {dataset} with version {version} not found.")
-        datadir = os.path.join(CACHE_DIR, dataset)
-        os.mkdir(datadir)
-        datafile = os.path.join(datadir, os.path.split(url)[-1])
-        logger.info(f"Downloading {dataset} data files to {datadir}...\n")
-        with urllib.request.urlopen(url) as response, open(datafile, "wb") as outfile:
-            shutil.copyfileobj(response, outfile)
+    sc.pp.log1p(adata)
+    adata.raw = adata
 
-        logger.info("Extracting files...\n")
-        tf = tarfile.open(datafile)
-        tf.extractall(datadir)
-        os.unlink(datafile)
+    sc.pp.highly_variable_genes(adata, n_top_genes=2000)
+    adata = adata[:, adata.var.highly_variable]
 
-        return datadir
-    else:
-        raise ValueError(f"Dataset {dataset} not found.")
+    sc.pp.regress_out(adata, ["total_counts", "pct_counts_mt"])
+
+    sc.pp.scale(adata, max_value=10)
+
+    sc.tl.pca(adata, svd_solver="arpack")
+
+    sc.pp.neighbors(adata, n_neighbors=10, n_pcs=40)
+    sc.tl.leiden(adata)
+    return adata
 
 
 def full_analysis(
     infile: str,
     outdir: str,
+    ftype: Optional[str] = "auto",
     cluster: Optional[str] = None,
     n_top_genes: Optional[int] = 1000,
     pfmfile: Optional[str] = None,
@@ -914,7 +891,14 @@ def full_analysis(
     """
     Run full SCEPIA analysis on h5ad infile.
     """
+    logger.info(f"Reading {infile} using scanpy")
     adata = sc.read(infile)
+
+    logger.info(f"{adata.shape[0]} cells x {adata.shape[1]} genes")
+    if adata.raw is None or "connectivities" not in adata.obsp:
+        logger.info("No processed information found (connectivity graph, clustering).")
+        logger.info("Running basic analysis.")
+        adata = _simple_preprocess(adata)
 
     if cluster is None:
         if "leiden" in adata.obs:
