@@ -2,7 +2,9 @@ import versioneer
 from setuptools import setup, find_packages
 import os
 
-DESCRIPTION = "Inference of transcription factor motif activity from single cell RNA-seq data."
+DESCRIPTION = (
+    "Inference of transcription factor motif activity from single cell RNA-seq data."
+)
 
 with open("README.md") as f:
     long_description = f.read()
@@ -12,8 +14,8 @@ entry_points = {"console_scripts": ["scepia=scepia.cli:cli"]}
 setup(
     name="scepia",
     version=versioneer.get_version(),
-    long_description = long_description,
-    long_description_content_type = 'text/markdown',
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     description=DESCRIPTION,
     author="Simon van Heeringen",
     author_email="simon.vanheeringen@gmail.com",
@@ -39,8 +41,10 @@ setup(
         "adjustText",
         "biofluff",
         "gimmemotifs",
+        "leiden",
+        "loguru",
         "matplotlib",
-        "numpy",
+        "numba" "numpy",
         "pandas",
         "scanpy",
         "scikit-learn",
