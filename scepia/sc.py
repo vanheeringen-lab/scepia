@@ -12,24 +12,17 @@ import sys
 import tarfile
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 import urllib.request
-from time import sleep
 
 # Typing
 from typing import List, Optional, Tuple
 
-from adjustText import adjust_text
 from anndata import AnnData
 from appdirs import user_cache_dir
 
 from loguru import logger
-import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
 import numpy as np
-from matplotlib.colors import LinearSegmentedColormap
-import matplotlib.gridspec as gridspec
 import pandas as pd
 import scanpy as sc
-import seaborn as sns
 from sklearn.linear_model import MultiTaskLassoCV
 from sklearn.linear_model import (  # noqa: F401
     BayesianRidge,
@@ -41,25 +34,21 @@ from sklearn.model_selection import KFold
 from sklearn.preprocessing import scale
 from sklearn.utils import shuffle
 from scipy.sparse import issparse
-from scipy.stats import pearsonr, percentileofscore, combine_pvalues
+from scipy.stats import percentileofscore, combine_pvalues
 from statsmodels.stats.multitest import multipletests
 from tqdm.auto import tqdm
 from yaml import load
 import geosketch
-from numba import njit
 
 from gimmemotifs.moap import moap
 from gimmemotifs.maelstrom import run_maelstrom
 from gimmemotifs.motif import read_motifs
-from gimmemotifs.rank import rankagg
 from gimmemotifs.utils import pfmfile_location
-from multiprocessing import Pool
 from scepia import __version__
+from scepia.plot import plot
+from scepia.util import fast_corr
 
 CACHE_DIR = os.path.join(user_cache_dir("scepia"))
-expression = None
-f_and_m = None
-_corr_adata = None
 
 
 class MotifAnnData(AnnData):
@@ -119,13 +108,6 @@ class MotifAnnData(AnnData):
         self.uns["scepia"]["motif_activity"] = self.uns["scepia"]["motif_activity"][
             self.uns["scepia"]["cell_types"]
         ]
-
-        # Add header and index
-        adata.uns["scepia"]["motif_activity"] = pd.DataFrame(
-            adata.uns["scepia"]["motif_activity"],
-            columns=adata.uns["scepia"]["motif_activity_columns"],
-            index=adata.uns["scepia"]["motif_activity_index"],
-        )
 
         if "X_cell_types" not in self.obsm:
             logger.warning("scepia information is not complete")
@@ -520,24 +502,6 @@ def annotate_cells(
     )
     adata.obsm["X_cell_types"] = df_coef.T[adata.uns["scepia"]["cell_types"]].values
 
-    ## First round of annotation
-    # assign_cell_types(adata, min_annotated=1)
-    #
-    ## Now calculate the majority per cluster
-    # cluster_count = (
-    #    adata.obs.groupby([cluster, "cell_annotation"]).count().iloc[:, 0].dropna()
-    # )
-    # cluster_anno = (
-    #    cluster_count.sort_values()
-    #    .reset_index()
-    #    .drop_duplicates(subset=cluster, keep="last")
-    #    .set_index(cluster)
-    # )
-    #
-    # cluster_anno = cluster_anno[["cell_annotation"]].rename(
-    #    columns={"cell_annotation": "cluster_annotation"}
-    # )
-
     # Annotate by highest mean coefficient
     coefs = pd.DataFrame(
         adata.obsm["X_cell_types"], index=adata.obs_names, columns=cell_types
@@ -566,6 +530,8 @@ def infer_motifs(
     num_enhancers: Optional[int] = 10000,
     maelstrom: Optional[bool] = False,
     indirect: Optional[bool] = True,
+    n_sketch: Optional[int] = 2500,
+    n_permutations: Optional[int] = 100000,
 ) -> None:
     """Infer motif ativity for single cell RNA-seq data.
 
@@ -671,7 +637,7 @@ def infer_motifs(
                 comment="#",
                 index_col=0,
             )
-            motif_act.columns = motif_act.columns.str.replace("z-score\s+", "")
+            motif_act.columns = motif_act.columns.str.replace(r"z-score\s+", "")
             pfm = pfmfile_location(os.path.join(tmpdir, "nonredundant.motifs.pfm"))
     else:
         motif_act = moap(
@@ -696,55 +662,19 @@ def infer_motifs(
     )
     adata.obs = adata.obs.join(cell_motif_activity)
 
-    correlate_tf_motifs(adata, indirect=indirect)
+    correlate_tf_motifs(
+        adata, indirect=indirect, n_sketch=n_sketch, n_permutations=n_permutations
+    )
 
     add_activity(adata)
 
     return MotifAnnData(adata)
 
 
-@njit
-def mean1(a):
-    n = len(a)
-    b = np.empty(n)
-    for i in range(n):
-        b[i] = a[i].mean()
-    return b
-
-
-@njit
-def std1(a):
-    n = len(a)
-    b = np.empty(n)
-    for i in range(n):
-        b[i] = a[i].std()
-    return b
-
-
-@njit
-def fast_corr(a, b):
-    """ Correlation """
-    n, k = a.shape
-    m, k = b.shape
-
-    mu_a = mean1(a)
-    mu_b = mean1(b)
-    sig_a = std1(a)
-    sig_b = std1(b)
-
-    out = np.empty((n, m))
-
-    for i in range(n):
-        for j in range(m):
-            out[i, j] = (a[i] - mu_a[i]) @ (b[j] - mu_b[j]) / k / sig_a[i] / sig_b[j]
-
-    return out
-
-
 def correlate_tf_motifs(
     adata: AnnData,
-    sketch_num: Optional[int] = 2500,
-    n_permutations: Optional[int] = 10000,
+    n_sketch: Optional[int] = 2500,
+    n_permutations: Optional[int] = 100000,
     indirect: Optional[bool] = True,
 ) -> None:
     """Correlate inferred motif activity with TF expression.
@@ -765,12 +695,12 @@ def correlate_tf_motifs(
     f2m2.columns = ["motif", "factor"]
     unique_factors = f2m2["factor"].unique()
 
-    if sketch_num is None or sketch_num > adata.shape[0]:
+    if n_sketch is None or n_sketch > adata.shape[0]:
         logger.info(f"using all cells")
         my_adata = adata
     else:
-        logger.info(f"creating sketch of {sketch_num} cells")
-        idx = geosketch.gs(adata.obsm["X_pca"], sketch_num)
+        logger.info(f"creating sketch of {n_sketch} cells")
+        idx = geosketch.gs(adata.obsm["X_pca"], n_sketch)
         my_adata = adata.copy()
         my_adata = my_adata[idx]
 
@@ -871,6 +801,7 @@ def correlate_tf_motifs(
         .rename_axis("motif")
     )
 
+    f2m2 = f2m2.reset_index().set_index("factor")
     adata.uns["scepia"]["correlation"] = f2m2
 
 
@@ -886,8 +817,8 @@ def add_activity(adata: AnnData):
 
     gm = GaussianMixture(n_components=2, covariance_type="full")
     f2m = adata.uns["scepia"]["correlation"]
-    for factor in f2m.reset_index()["factor"].unique():
-        motif = f2m.xs(factor, level="factor").sort_values("p_adj").iloc[0].name
+    for factor in f2m.index.unique():
+        motif = f2m.loc[[factor]].sort_values("p_adj").iloc[0].motif
         gm.fit(adata.obs[motif].values.reshape(-1, 1) * 10)
         adata.obs[f"{factor}_activity"] = gm.predict_proba(adata.obs[[motif]] * 10)[
             :, gm.means_.argmax()
@@ -971,380 +902,6 @@ def locate_data(dataset: str, version: Optional[float] = None) -> str:
         raise ValueError(f"Dataset {dataset} not found.")
 
 
-# def _run_correlation(args: Tuple[int, int, bool]) -> pd.DataFrame:
-#    """Calculate correlation between motif activity and factor expression.
-#    """
-#    seed, it, do_shuffle = args
-#    global expression
-#    global f_and_m
-#    global _corr_adata
-#
-#    if do_shuffle:
-#        shape = _corr_adata.uns["scepia"]["motif_activity"].shape
-#        motif_activity = shuffle(
-#            _corr_adata.uns["scepia"]["motif_activity"].values.flatten(),
-#            random_state=seed,
-#        ).reshape(shape[1], shape[0])
-#
-#    else:
-#        motif_activity = _corr_adata.uns["scepia"]["motif_activity"].T.values
-#    cell_motif_activity = pd.DataFrame(
-#        _corr_adata.obsm["X_cell_types"] @ motif_activity
-#    )
-#    cell_motif_activity.columns = _corr_adata.uns["scepia"]["motif_activity"].index
-#
-#    correlation = []
-#    for factor, motifs in f_and_m.items():
-#        correlation.append(
-#            (
-#                factor,
-#                pearsonr(cell_motif_activity[motifs].mean(1), expression.loc[factor])[
-#                    0
-#                ],
-#            )
-#        )
-#    correlation = pd.DataFrame(correlation, columns=["factor", f"corr"]).set_index(
-#        "factor"
-#    )
-#
-#    return correlation
-#
-#
-# def determine_significance(
-#    adata: AnnData,
-#    n_rounds: Optional[int] = 10000,
-#    ncpus: Optional[int] = 12,
-#    corr_quantile: Optional[float] = 0.5,
-#    indirect: Optional[bool] = True,
-#    sketch_num: Optional[int] = 1000,
-# ) -> None:
-#    """Determine significance of motif-TF correlations by permutation testing.
-#
-#    Parameters
-#    ----------
-#    adata : :class:`~anndata.AnnData`
-#        Annotated data matrix.
-#    n_rounds : `int`, optional
-#        Number of permutations. The default is 10000.
-#    ncpus : `int`, optional
-#        Number of threads to use.
-#    """
-#    # Create DataFrame of gene expression from the raw data in the adata object.
-#    # We use the raw data as it will contain many more genes. Relevant transcription
-#    # factors are not necessarily called as hyper-variable genes.
-#    if "scepia" not in adata.uns:
-#        raise ValueError(
-#            "Could not find motif information. Did you run infer_motifs() first?"
-#        )
-#
-#    global expression
-#    global f_and_m
-#    global _corr_adata
-#
-#    if sketch_num is None:
-#        _corr_adata = adata
-#    else:
-#        logger.info(f"creating sketch of {sketch_num} cells")
-#        idx = geosketch.gs(adata.obsm["X_pca"], sketch_num)
-#        _corr_adata = adata.copy()
-#        _corr_adata = _corr_adata[idx]
-#
-#    if issparse(adata.raw.X):
-#        expression = pd.DataFrame(
-#            _corr_adata.raw.X.todense(),
-#            index=_corr_adata.obs_names,
-#            columns=_corr_adata.raw.var_names,
-#        ).T
-#    else:
-#        expression = pd.DataFrame(
-#            _corr_adata.raw.X,
-#            index=_corr_adata.obs_names,
-#            columns=_corr_adata.raw.var_names,
-#        ).T
-#
-#    logger.info(expression.shape)
-#
-#    m_and_f = []
-#    f_and_m = {}
-#    m2f = motif_mapping(indirect=indirect)
-#    for motif in adata.uns["scepia"]["motif_activity"].index:
-#        if motif in m2f.index:
-#            factors = [
-#                f for f in m2f.loc[motif, "factors"].split(",") if f in expression.index
-#            ]
-#            m_and_f.append([motif, factors])
-#
-#            for factor in factors:
-#                if factor in f_and_m:
-#                    f_and_m[factor].append(motif)
-#                else:
-#                    f_and_m[factor] = [motif]
-#
-#    correlation = pd.DataFrame(index=f_and_m.keys())
-#    correlation = correlation.join(_run_correlation((0, 0, False)))
-#    correlation.columns = ["actual_corr"]
-#    correlation["abs.actual_corr"] = np.abs(correlation["actual_corr"])
-#
-#    std_lst = []
-#    for m, fs in m_and_f:
-#        for f in fs:
-#            std_lst.append([m, f])
-#    std_df = pd.DataFrame(std_lst, columns=["motif", "factor"]).set_index("motif")
-#    std_df = (
-#        pd.DataFrame(adata.uns["scepia"]["motif_activity"].std(1))
-#        .join(std_df)
-#        .groupby("factor")
-#        .max()
-#        .sort_values(0)
-#    )
-#    std_df.columns = ["std"]
-#    if "std" in correlation.columns:
-#        correlation = correlation.drop(columns=["std"])
-#    correlation = correlation.join(std_df)
-#
-#    min_corr = correlation["abs.actual_corr"].quantile(corr_quantile)
-#    for factor in correlation[correlation["abs.actual_corr"] < min_corr].index:
-#        del f_and_m[factor]
-#
-#    tmp_corr = correlation[correlation["abs.actual_corr"] >= min_corr]
-#    # Run n_rounds of correlation with shuffled motif activities.
-#    # The last iteration will be with the real motif activities.
-#    n_rounds = n_rounds
-#    logger.info("running permutations")
-#    pool = Pool(ncpus)
-#    for i, corr_iter, in tqdm(
-#        enumerate(
-#            pool.imap(
-#                _run_correlation,
-#                [(np.random.randint(2 ** 32 - 1), it, True) for it in range(n_rounds)],
-#            )
-#        ),
-#        total=n_rounds,
-#    ):
-#        tmp_corr = tmp_corr.join(corr_iter.iloc[:, [-1]], rsuffix=f"{i}")
-#
-#    pool.close()
-#
-#    pval = [
-#        (
-#            100
-#            - percentileofscore(
-#                tmp_corr.loc[factor, tmp_corr.columns[-n_rounds:]],
-#                tmp_corr.loc[factor, "actual_corr"],
-#            )
-#        )
-#        / 100
-#        for factor in tmp_corr.index
-#    ]
-#    tmp_corr["pval"] = pval
-#    tmp_corr.loc[tmp_corr["actual_corr"] < 0, "pval"] = (
-#        1 - tmp_corr.loc[tmp_corr["actual_corr"] < 0, "pval"]
-#    )
-#    tmp_corr.loc[tmp_corr["pval"] == 0, "pval"] = 1 / (tmp_corr.shape[1] - 2)
-#    tmp_corr["log_pval"] = -np.log10(tmp_corr["pval"])
-#
-#    cols = ["std", "abs.actual_corr", "log_pval"]
-#    rank = pd.DataFrame()
-#    for col in cols:
-#        rank[col] = tmp_corr.sort_values(col, ascending=False).index.values
-#    rank = rankagg(rank)
-#    rank.columns = ["rank_pval"]
-#    tmp_corr = tmp_corr.join(rank)
-#
-#    correlation = correlation.join(tmp_corr[["pval", "log_pval", "rank_pval"]])
-#
-#    adata.uns["scepia"]["correlation"] = correlation
-#
-
-# def plot_volcano_corr(
-#    adata: AnnData,
-#    max_pval: Optional[float] = 0.1,
-#    n_anno: Optional[int] = 40,
-#    size_anno: Optional[float] = 6,
-#    palette: Optional[str] = None,
-#    alpha: Optional[float] = 0.8,
-#    linewidth: Optional[float] = 0,
-#    sizes: Optional[Tuple[int, int]] = (5, 25),
-#    ax: Optional[Axes] = None,
-#    **kwargs,
-# ) -> Axes:
-#    """Volcano plot of significance of motif-TF correlations.
-#
-#    Parameters
-#    ----------
-#    adata : :class:`~anndata.AnnData`
-#        Annotated data matrix.
-#    """
-#    if "scepia" not in adata.uns:
-#        raise ValueError("Motif annotation not found. Did you run `infer_motifs()`?")
-#    if "correlation" not in adata.uns["scepia"]:
-#        raise ValueError(
-#            "Motif-TF correlation data not found."
-#        )
-#
-#    #    if palette is None:
-#    #        n_colors = len(
-#    #            sns.utils.categorical_order(adata.uns["scepia"]["correlation"]["std"])
-#    #        )
-#    #        cmap = LinearSegmentedColormap.from_list(
-#    #            name="grey_black", colors=["grey", "black"]
-#    #        )
-#    #        palette = sns.color_palette([cmap(i) for i in np.arange(0, 1, 1 / n_colors)])
-#    #
-#    sns.set_style("ticks")
-#
-#    plot_data = adata.uns["scepia"]["correlation"].reset_index().sort_values("p_adj").groupby("factor").first()
-#
-#
-#    g = sns.scatterplot(
-#        data=plot_data,
-#        y="-log10(p-value)",
-#        x="correlation",
-##        size="std",
-##        hue="std",
-#        palette=palette,
-#        sizes=sizes,
-#        linewidth=linewidth,
-#        alpha=alpha,
-#        ax=ax,
-#        **kwargs,
-#    )
-#    g.legend_.remove()
-#    g.axhline(y=-np.log10(max_pval), color="grey", zorder=0, ls="dashed")
-#
-#    factors = plot_data[(plot_data["p_adj"] <= max_pval)].sort_values("p_adj").index[:n_anno]
-#    x = plot_data.loc[factors, "correlation"]
-#    y = plot_data.loc[factors, "-log10(p-value)"]
-#
-#    texts = []
-#    for s, xt, yt in zip(factors, x, y):
-#        texts.append(plt.text(xt, yt, s, {"size": size_anno}))
-#
-#    x_max = plot_data["correlation"].max() * 1.1
-#    plt.xlim(-x_max, x_max)
-#    adjust_text(
-#        texts,
-#        arrowprops=dict(arrowstyle="-", color="black"),
-#        # expand_points=(1, 1), expand_text=(1, 1),
-#    )
-#    plt.xlabel("Correlation (motif vs. factor expression)")
-#    plt.ylabel("Significance (-log10 p-value)")
-#    return g
-#
-
-
-def plot_volcano_corr(
-    adata: AnnData,
-    max_pval: Optional[float] = 0.05,
-    n_anno: Optional[int] = 40,
-    size_anno: Optional[float] = 7,
-    palette: Optional[str] = None,
-    alpha: Optional[float] = 0.8,
-    linewidth: Optional[float] = 0,
-    sizes: Optional[Tuple[int, int]] = (3, 20),
-    ax: Optional[Axes] = None,
-    **kwargs,
-) -> Axes:
-    sns.set_style("ticks")
-
-    plot_data = (
-        adata.uns["scepia"]["correlation"]
-        .reset_index()
-        .sort_values("p_adj")
-        .groupby("factor")
-        .first()
-    )
-
-    g = sns.scatterplot(
-        data=plot_data,
-        y="-log10(p-value)",
-        x="correlation",
-        size="motif_stddev",
-        hue="motif_stddev",
-        palette=palette,
-        sizes=sizes,
-        linewidth=linewidth,
-        alpha=alpha,
-        ax=ax,
-        **kwargs,
-    )
-    g.legend_.remove()
-    # g.axhline(y=-np.log10(max_pval), color="grey", zorder=0, ls="dashed")
-
-    factors = (
-        plot_data[(plot_data["p_adj"] <= max_pval)].sort_values("p_adj").index[:n_anno]
-    )
-    x = plot_data.loc[factors, "correlation"]
-    y = plot_data.loc[factors, "-log10(p-value)"]
-
-    texts = []
-    for s, xt, yt in zip(factors, x, y):
-        texts.append(plt.text(xt, yt, s, {"size": size_anno}))
-
-    x_max = plot_data["correlation"].max() * 1.1
-    # plt.xlim(-x_max, x_max)
-    # plt.ylim(-np.log10(max_pval), plt.ylim()[1])
-    adjust_text(
-        texts,
-        arrowprops=dict(arrowstyle="-", color="black"),
-        #        force_points=(2,0.5),
-        #        expand_points=(0, 1), expand_text=(0.5, 0.5),
-    )
-    # plt.xlabel("Correlation (motif vs. factor expression)")
-    # plt.ylabel("Significance (-log10 p-value)")
-    return g
-
-
-def plot(
-    adata: AnnData,
-    max_pval: Optional[float] = 0.05,
-    n_anno: Optional[int] = 40,
-    size_anno: Optional[float] = 7,
-    palette: Optional[str] = None,
-    alpha: Optional[float] = 0.8,
-    linewidth: Optional[float] = 0,
-    sizes: Optional[Tuple[int, int]] = (3, 20),
-    ax: Optional[Axes] = None,
-    **kwargs,
-) -> Axes:
-
-    motifs = read_motifs(adata.uns["scepia"]["pfm"], as_dict=True)
-    n_motifs = 8
-
-    fig = plt.figure(figsize=(5, n_motifs * 0.75))
-    gs = gridspec.GridSpec(n_motifs, 5)
-
-    ax = fig.add_subplot(gs[:, :4])
-    plot_volcano_corr(adata, ax=ax, size_anno=8)
-
-    factors = (
-        adata.uns["scepia"]["correlation"]
-        .groupby("factor")
-        .min()
-        .sort_values("p_adj")
-        .index[:n_motifs]
-    )
-
-    for i in range(n_motifs):
-        factor = factors[i]
-        motif = (
-            adata.uns["scepia"]["correlation"]
-            .xs(factor, level="factor")
-            .sort_values("p_adj")
-            .index[0]
-        )
-        ax = fig.add_subplot(gs[i, 4:])
-        motifs[motif].plot_logo(ax=ax, ylabel=False, title=False)
-        plt.title(factor)
-        ax.title.set_fontsize(8)
-        ax.axis("off")
-        # for item in [ax.title] + ax.get_xticklabels() + ax.get_yticklabels():
-        #    item.set_fontsize(6)
-
-    # fig.align_labels()  # same as fig.align_xlabels(); fig.align_ylabels()
-    plt.tight_layout()
-
-
 def full_analysis(
     infile: str,
     outdir: str,
@@ -1382,8 +939,8 @@ def full_analysis(
         num_enhancers=num_enhancers,
         indirect=True,
     )
-    f2m = os.path.join(outdir, "factor2motif.txt")
-    adata.uns["scepia"]["factor2motif"].to_csv(f2m, sep="\t", index=False)
+    f2m = os.path.join(outdir, "factor_motif_correlation.txt")
+    adata.uns["scepia"]["correlation"].to_csv(f2m, sep="\t")
     adata.write(outfile)
 
     fname = os.path.join(outdir, "cell_x_motif_activity.txt")
@@ -1391,9 +948,7 @@ def full_analysis(
     cellxact.columns = adata.obs_names
     cellxact.to_csv(fname, sep="\t")
 
-    determine_significance(adata, indirect=True)
     adata.write(outfile)
 
-    ax = plot_volcano_corr(adata, n_anno=40)
-    fig = ax.get_figure()
+    fig = plot(adata, n_anno=40)
     fig.savefig("volcano.png", dpi=600)

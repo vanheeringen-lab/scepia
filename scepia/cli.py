@@ -24,7 +24,7 @@ def cli():
 @click.argument("bamfile")
 @click.argument("outfile")
 @click.option("-w", "--window", help="window")
-@click.option("-N", "--nthreads", help="number of threads")
+@click.option("-N", "--nthreads", help="Number of threads.")
 def area27(bamfile, outfile, window=2000, nthreads=4):
     """
     Determine the enhancer-based regulatory potential (ERP) score per gene. This
@@ -38,12 +38,17 @@ def area27(bamfile, outfile, window=2000, nthreads=4):
 
 @click.command("infer_motifs", short_help="Run SCEPIA motif inference on an h5ad file.")
 @click.argument("infile")
-@click.argument("outfile")
-def infer_motifs(infile, outfile):
+@click.argument("outdir")
+@click.option("-c", "--cluster", help="cluster name (default checks for 'louvain' or 'leiden').")
+@click.option("-n", "--n_top_genes", default=1000, help="Maximum number of variable genes that is used (1000).")
+@click.option("-p", "--pfmfile", help="Name of motif PFM file or GimmeMotifs database name.")
+@click.option("-a", "--min_annotated", default=50, help="Minimum number of cells per cell type (50).")
+@click.option("-e", "--num_enhancers", default=10000, help="Number of enhancers to use for motif activity (10000).")
+def infer_motifs(infile, outdir, cluster, n_top_genes, pfmfile, min_annotated, num_enhancers):
     """
     Infer motifs.
     """
-    full_analysis(infile, outfile)   
+    full_analysis(infile, outdir, cluster=cluster, n_top_genes=n_top_genes, pfmfile=pfmfile, min_annotated=min_annotated, num_enhancers=num_enhancers)   
 
 
 cli.add_command(area27)
