@@ -32,7 +32,7 @@ $ conda config --add channels conda-forge
 Now you can create an environment for scepia:
 
 ``` 
-conda create -n scepia python=3 adjusttext biofluff gimmemotifs scanpy louvain loguru pyarrow ipywidgets nb_conda
+conda create -n scepia python=3 adjusttext biofluff gimmemotifs scanpy leidenalg louvain loguru pyarrow ipywidgets nb_conda
 conda activate scepia
 ```
 
@@ -44,14 +44,23 @@ pip install git+https://github.com/vanheeringen-lab/scepia.git@0.3.4
 
 ## Usage
 
+### Command line
+
 Remember to activate the environment before using it
+
 ```
 conda activate scepia
 ```
 
-### Tutorial
+The command line script `scepia infer_motifs` works on any file that is supported by [`scanpy.read()`](https://scanpy.readthedocs.io/en/stable/api/scanpy.read.html). We recommend to process your data, including QC, filtering, normalization and clustering, using scanpy. If you save the results to an `.h5ad` file, `scepia` can continue from your analysis to infer motif activity. However, the command line tool also works on formats such as CSV files or tab-separated files. In that case, `scepia` will run some basic pre-processing steps. To run `scepia`:
 
-A tutorial on how to use `scepia` can be found [here](tutorials/scepia_tutorial.ipynb).
+```
+scepia infer_motifs <input_file> <output_dir>
+```
+
+### Jupyter notebook tutorial
+
+A tutorial on how to use `scepia` interactively in Jupyter can be found [here](tutorials/scepia_tutorial.ipynb).
 
 ### Single cell-based motif inference
 
