@@ -11,13 +11,7 @@ The current reference is based on H3K27ac profiles from ENCODE.
 
 So sorry, but only human is supported for now. However, if you have mouse data you *can* try it. Make sure you use upper-case gene names as identifier, and `scepia` will run fine. In our (very limited) experience this *can* yield good results, but there are a lot of assumptions on conservation of regulatory interactions. 
 
-## Requirements
-
-* Python >= 3.6
-* Scanpy
-* GimmeMotifs
-
-## Installation
+## Requirements and installation
 
 You will need [conda](https://docs.continuum.io/anaconda/) using the [bioconda](https://bioconda.github.io/) channel.
 
@@ -62,9 +56,7 @@ scepia infer_motifs <input_file> <output_dir>
 
 A tutorial on how to use `scepia` interactively in Jupyter can be found [here](tutorials/scepia_tutorial.ipynb).
 
-### Single cell-based motif inference
-
-The [scanpy](https://github.com/theislab/scanpy) package is required to use scepia. Single cell data should be loaded in an [AnnData](https://anndata.readthedocs.io/en/latest/anndata.AnnData.html) object.
+Single cell data should be loaded in an [AnnData](https://anndata.readthedocs.io/en/latest/anndata.AnnData.html) object.
 Make sure of the following:
 
 * Gene names are used in `adata.var_names`, not Ensembl identifiers or any other gene identifiers.
@@ -75,12 +67,11 @@ Make sure of the following:
 Once these preprocessing steps are met, `infer_motifs()` can be run to infer the TF motif activity. The first time the reference data will be downloaded, so this will take somewhat longer.
 
 ```
-from scepia.sc import infer_motifs, determine_significance
+from scepia.sc import infer_motifs
 
 # load and preprocess single-cell data using scanpy
 
 adata = infer_motifs(adata, dataset="ENCODE")
-determine_significance(adata)
 ```
 
 The resulting `AnnData` object can be saved with the `.write()` method to a `h5ad` file. However, due to some difficulties with storing the motif annotation in the correct format, the file cannot be loaded with the `scanpy` load() method. Instead, use the `read()` method from the scepia package:
