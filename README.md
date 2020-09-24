@@ -9,7 +9,7 @@ SCEPIA predicts transcription factor motif activity from single cell RNA-seq dat
 
 The current reference is based on H3K27ac profiles from ENCODE.
 
-So sorry, but only human  is supported for now.
+So sorry, but only human is supported for now. However, if you have mouse data you *can* try it. Make sure you use upper-case gene names as identifier, and `scepia` will run fine. In our (very limited) experience this *can* yield good results, but there are a lot of assumptions on conservation of regulatory interactions. 
 
 ## Requirements
 
