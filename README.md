@@ -9,15 +9,9 @@ SCEPIA predicts transcription factor motif activity from single cell RNA-seq dat
 
 The current reference is based on H3K27ac profiles from ENCODE.
 
-So sorry, but only human  is supported for now.
+So sorry, but only human is supported for now. However, if you have mouse data you *can* try it. Make sure you use upper-case gene names as identifier, and `scepia` will run fine. In our (very limited) experience this *can* yield good results, but there are a lot of assumptions on conservation of regulatory interactions. 
 
-## Requirements
-
-* Python >= 3.6
-* Scanpy
-* GimmeMotifs
-
-## Installation
+## Requirements and installation
 
 You will need [conda](https://docs.continuum.io/anaconda/) using the [bioconda](https://bioconda.github.io/) channel.
 
@@ -32,30 +26,38 @@ $ conda config --add channels conda-forge
 Now you can create an environment for scepia:
 
 ``` 
-conda create -n scepia python=3 libgcc-ng=9.2.0=hdf63c60_0 adjusttext biofluff gimmemotifs=0.14.3 scanpy louvain loguru pyarrow ipywidgets nb_conda
+conda create -n scepia python=3 adjusttext biofluff gimmemotifs scanpy leidenalg louvain loguru geosketch
+# Note: if you want to use scepia in a Jupyter notebook, you also have to install the following packages: `ipywidgets nb_conda`.
 conda activate scepia
 ```
 
 Install the latest release of scepia:
 
 ```
-pip install git+https://github.com/vanheeringen-lab/scepia.git@0.3.1
+pip install git+https://github.com/vanheeringen-lab/scepia.git@0.3.4
 ```
 
 ## Usage
 
+### Command line
+
 Remember to activate the environment before using it
+
 ```
 conda activate scepia
 ```
 
-### Tutorial
+The command line script `scepia infer_motifs` works on any file that is supported by [`scanpy.read()`](https://scanpy.readthedocs.io/en/stable/api/scanpy.read.html). We recommend to process your data, including QC, filtering, normalization and clustering, using scanpy. If you save the results to an `.h5ad` file, `scepia` can continue from your analysis to infer motif activity. However, the command line tool also works on formats such as CSV files or tab-separated files. In that case, `scepia` will run some basic pre-processing steps. To run `scepia`:
 
-A tutorial on how to use `scepia` can be found [here](tutorials/scepia_tutorial.ipynb).
+```
+scepia infer_motifs <input_file> <output_dir>
+```
 
-### Single cell-based motif inference
+### Jupyter notebook tutorial
 
-The [scanpy](https://github.com/theislab/scanpy) package is required to use scepia. Single cell data should be loaded in an [AnnData](https://anndata.readthedocs.io/en/latest/anndata.AnnData.html) object.
+A tutorial on how to use `scepia` interactively in Jupyter can be found [here](tutorials/scepia_tutorial.ipynb).
+
+Single cell data should be loaded in an [AnnData](https://anndata.readthedocs.io/en/latest/anndata.AnnData.html) object.
 Make sure of the following:
 
 * Gene names are used in `adata.var_names`, not Ensembl identifiers or any other gene identifiers.
@@ -66,12 +68,11 @@ Make sure of the following:
 Once these preprocessing steps are met, `infer_motifs()` can be run to infer the TF motif activity. The first time the reference data will be downloaded, so this will take somewhat longer.
 
 ```
-from scepia.sc import infer_motifs, determine_significance
+from scepia.sc import infer_motifs
 
 # load and preprocess single-cell data using scanpy
 
 adata = infer_motifs(adata, dataset="ENCODE")
-determine_significance(adata)
 ```
 
 The resulting `AnnData` object can be saved with the `.write()` method to a `h5ad` file. However, due to some difficulties with storing the motif annotation in the correct format, the file cannot be loaded with the `scanpy` load() method. Instead, use the `read()` method from the scepia package:
@@ -92,6 +93,6 @@ To use, an H3K27ac BAM file is needed (mapped to hg38). The `-N` argument
 specifies the number of threads to use.
 
 ```
-scepia <bamfile> <outfile> -N 12
+scepia area27 <bamfile> <outfile> -N 12
 ```
 
