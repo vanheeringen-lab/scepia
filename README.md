@@ -9,11 +9,13 @@ SCEPIA predicts transcription factor motif activity from single cell RNA-seq dat
 
 The current reference is based on H3K27ac profiles from ENCODE.
 
+So sorry, but only human  is supported for now.
+
 ## Requirements
 
 * Python >= 3.6
 * Scanpy
-* GimmeMotifs (development branch)
+* GimmeMotifs
 
 ## Installation
 
@@ -30,15 +32,14 @@ $ conda config --add channels conda-forge
 Now you can create an environment for scepia:
 
 ``` 
-conda create -n scepia python=3 adjusttext biofluff gimmemotifs scanpy
+conda create -n scepia python=3 libgcc-ng=9.2.0=hdf63c60_0 adjusttext biofluff gimmemotifs=0.14.3 scanpy louvain loguru pyarrow ipywidgets nb_conda
 conda activate scepia
 ```
 
-Install the development version of GimmeMotifs and scepia:
+Install the latest release of scepia:
 
 ```
-pip install git+https://github.com/vanheeringen-lab/gimmemotifs.git@develop
-pip install git+https://github.com/vanheeringen-lab/scepia.git@develop
+pip install git+https://github.com/vanheeringen-lab/scepia.git@0.3.1
 ```
 
 ## Usage
@@ -48,9 +49,13 @@ Remember to activate the environment before using it
 conda activate scepia
 ```
 
+### Tutorial
+
+A tutorial on how to use `scepia` can be found [here](tutorials/scepia_tutorial.ipynb).
+
 ### Single cell-based motif inference
 
-The [scanpy](https://github.com/theislab/scanpy) package is essential to use scepia. Single cell data should be loaded in an [AnnData](https://anndata.readthedocs.io/en/latest/anndata.AnnData.html) object.
+The [scanpy](https://github.com/theislab/scanpy) package is required to use scepia. Single cell data should be loaded in an [AnnData](https://anndata.readthedocs.io/en/latest/anndata.AnnData.html) object.
 Make sure of the following:
 
 * Gene names are used in `adata.var_names`, not Ensembl identifiers or any other gene identifiers.

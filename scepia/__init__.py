@@ -10,6 +10,7 @@ import sys
 from tempfile import NamedTemporaryFile
 from multiprocessing import Pool
 from pkg_resources import resource_filename
+from typing import Optional, List
 
 import xdg
 import pandas as pd
@@ -17,13 +18,17 @@ import numpy as np
 from fluff.fluffio import load_heatmap_data
 from pybedtools import BedTool
 from genomepy import Genome
+from loguru import logger
+
+logger.remove()
+logger.add(sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss} - {level} - {message}", level="INFO")
 
 CACHE_DIR = os.path.join(xdg.XDG_CACHE_HOME, "scepia")
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR)
 
 
-def splitextgz(fname):
+def splitextgz(fname: str) -> str:
     """Return filename without .gz extension/
 
     Parameters
@@ -41,7 +46,12 @@ def splitextgz(fname):
     return os.path.splitext(os.path.basename(fname))[0]
 
 
-def count_bam(bedfile, bamfile, nthreads=4, window=2000):
+def count_bam(
+    bedfile: str,
+    bamfile: str,
+    nthreads: Optional[int] = 4,
+    window: Optional[int] = 2000,
+) -> List[int]:
     """Count reads in BAM file.
 
     Count reads from a BAM file in features of a BED file. An index file will
@@ -103,7 +113,7 @@ def count_bam(bedfile, bamfile, nthreads=4, window=2000):
     return total
 
 
-def quantile_norm(x, target=None):
+def quantile_norm(x: np.ndarray, target: Optional[np.ndarray] = None) -> np.ndarray:
     """Quantile normalize a 2D array.
 
     Parameters
@@ -130,7 +140,7 @@ def quantile_norm(x, target=None):
     return np.apply_along_axis(func, 0, x)
 
 
-def weigh_distance(dist):
+def weigh_distance(dist: float) -> float:
     """Return enhancer weight based upon distance.
 
     Parameters
@@ -149,7 +159,9 @@ def weigh_distance(dist):
     return w
 
 
-def create_link_file(meanstd_file, genes_file, genome="hg38"):
+def create_link_file(
+    meanstd_file: str, genes_file: str, genome: Optional[str] = "hg38"
+) -> pd.DataFrame:
     # Read enhancer locations
     if meanstd_file.endswith("feather"):
         tmp = pd.read_feather(meanstd_file)["index"]
@@ -176,7 +188,12 @@ def create_link_file(meanstd_file, genes_file, genome="hg38"):
 
 
 def link_it_up(
-    outfile, signal, meanstd_file=None, genes_file=None, names_file=None, threshold=2.0
+    outfile: str,
+    signal: pd.DataFrame,
+    meanstd_file: Optional[str] = None,
+    genes_file: Optional[str] = None,
+    names_file: Optional[str] = None,
+    threshold: Optional[float] = 2.0,
 ):
     """Return file with H3K27ac "score" per gene.
 
@@ -217,9 +234,9 @@ def link_it_up(
         genome = re.sub(
             r"[^\.]+\.(.*)\.meanstd.*", "\\1", os.path.basename(meanstd_file)
         )
-        sys.stdout.write("Creating link file with genome {}\n".format(genome))
+        logger.info("Creating link file with genome {}\n".format(genome))
         link = create_link_file(meanstd_file, genes_file, genome=genome)
-        sys.stdout.write(f"Saving to {CACHE_DIR}\n")
+        logger.info(f"Saving to {CACHE_DIR}\n")
         link.to_feather(link_file)
     else:
         # Read enhancer to gene links
@@ -264,11 +281,17 @@ def link_it_up(
         .sum()[["contrib"]]
     )
     link = link.join(ens2name).dropna().set_index("name")
-    sys.stderr.write(f"Writing output file {outfile}\n")
+    logger.info(f"Writing output file {outfile}\n")
     link.to_csv(outfile, sep="\t")
 
 
-def generate_signal(bam_file, window, meanstd_file=None, target_file=None, nthreads=4):
+def generate_signal(
+    bam_file: str,
+    window: int,
+    meanstd_file: Optional[str] = None,
+    target_file: Optional[str] = None,
+    nthreads: Optional[int] = 4,
+) -> pd.DataFrame:
     """Read BAM file and return normalized read counts.
 
     Read counts are determined in specified window, log-transformed and quantile-normalized.
@@ -309,7 +332,7 @@ def generate_signal(bam_file, window, meanstd_file=None, target_file=None, nthre
         meanstd["signal"] = result
 
     # Normalization
-    sys.stderr.write("Normalizing\n")
+    logger.info("Normalizing\n")
     meanstd["signal"] = np.log1p(meanstd["signal"])
     target = np.load(target_file)["target"]
     # np.random.shuffle(target)
@@ -317,6 +340,8 @@ def generate_signal(bam_file, window, meanstd_file=None, target_file=None, nthre
     meanstd["signal"] = (meanstd["signal"] - meanstd["mean"]) / meanstd["std"]
     return meanstd.set_index("index")[["signal"]]
 
+
 from ._version import get_versions
-__version__ = get_versions()['version']
+
+__version__ = get_versions()["version"]
 del get_versions
