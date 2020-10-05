@@ -106,7 +106,7 @@ def plot(
         factor = factors[i]
         motif = (
             adata.uns["scepia"]["correlation"]
-            .loc[factor]
+            .loc[[factor]]
             .sort_values("p_adj")
             .iloc[0]
             .motif

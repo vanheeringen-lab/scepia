@@ -271,8 +271,12 @@ def annotate_with_k27(
             columns=common_genes,
         ).T
     else:
+        expression = adata.X[:, adata.var_names.isin(gene_df.index)]
+        expression = (
+            np.squeeze(np.asarray(expression.todense())) if issparse(expression) else expression
+        )
         expression = pd.DataFrame(
-            adata.X[:, adata.var_names.isin(gene_df.index)],
+            expression,
             index=adata.obs_names,
             columns=common_genes,
         ).T
@@ -378,7 +382,14 @@ def relevant_cell_types(
     """
     logger.info("selecting reference cell types")
     common_genes = list(gene_df.index[gene_df.index.isin(adata.var_names)])
-    expression = pd.DataFrame(adata.X, index=adata.obs_names, columns=adata.var_names).T
+
+    expression = (
+        np.squeeze(np.asarray(adata.X.todense())) if issparse(adata.X) else adata.X
+    )
+
+    expression = pd.DataFrame(
+        expression, index=adata.obs_names, columns=adata.var_names
+    ).T
     expression = expression.loc[common_genes]
     expression.columns = adata.obs[cluster]
     expression = expression.groupby(expression.columns, axis=1).mean()
@@ -675,6 +686,7 @@ def infer_motifs(
 
     add_activity(adata)
 
+    logger.info("Done with motif inference.")
     return MotifAnnData(adata)
 
 
@@ -780,7 +792,7 @@ def correlate_tf_motifs(
         )
         permute_result = permute_result.join(batch_result)
 
-    logger.info("calculating permutation-based p-values")
+    logger.info("calculating permutation-based p-values (all)")
 
     # Calculate p-value of correlation relative to all permuted correlations
     permuted_corrs = permute_result.values.flatten()
@@ -792,6 +804,7 @@ def correlate_tf_motifs(
     f2m2.loc[f2m2["correlation"] < 0, "pval"] = (
         1 - f2m2.loc[f2m2["correlation"] < 0, "pval"]
     )
+    logger.info("calculating permutation-based p-values (factor-specific)")
 
     # Calculate p-value of correlation relative to permutated value of this factor
     for motif, factor in tqdm(f2m2.index):
@@ -834,7 +847,8 @@ def add_activity(adata: AnnData):
 
     gm = GaussianMixture(n_components=2, covariance_type="full")
     f2m = adata.uns["scepia"]["correlation"]
-    for factor in f2m.index.unique():
+    logger.info("Inferring factor activity.")
+    for factor in tqdm(f2m.index.unique()):
         motif = f2m.loc[[factor]].sort_values("p_adj").iloc[0].motif
         gm.fit(adata.obs[motif].values.reshape(-1, 1) * 10)
         adata.obs[f"{factor}_activity"] = gm.predict_proba(adata.obs[[motif]] * 10)[
@@ -877,9 +891,6 @@ def _simple_preprocess(adata: AnnData,) -> AnnData:
         adata, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
     )
 
-    adata = adata[adata.obs.n_genes_by_counts < 2500, :]
-    adata = adata[adata.obs.pct_counts_mt < 5, :]
-
     logger.info("Normalizing and log-transforming.")
     sc.pp.normalize_total(adata, target_sum=1e4)
 
@@ -890,8 +901,8 @@ def _simple_preprocess(adata: AnnData,) -> AnnData:
     sc.pp.highly_variable_genes(adata, n_top_genes=2000)
     adata = adata[:, adata.var.highly_variable]
 
-    logger.info("Regressing out counts and mitochondrial percentage.")
-    sc.pp.regress_out(adata, ["total_counts", "pct_counts_mt"])
+    logger.info("Regressing out total counts.")
+    sc.pp.regress_out(adata, ["total_counts"])
 
     logger.info("Scaling.")
     sc.pp.scale(adata, max_value=10)
@@ -904,6 +915,10 @@ def _simple_preprocess(adata: AnnData,) -> AnnData:
 
     logger.info("Running Leiden clustering.")
     sc.tl.leiden(adata)
+
+    logger.info("Running UMAP")
+    sc.tl.umap(adata)
+
     return adata
 
 
@@ -911,6 +926,7 @@ def full_analysis(
     infile: str,
     outdir: str,
     ftype: Optional[str] = "auto",
+    transpose: Optional[bool] = False,
     cluster: Optional[str] = None,
     n_top_genes: Optional[int] = 1000,
     pfmfile: Optional[str] = None,
@@ -920,14 +936,42 @@ def full_analysis(
     """
     Run full SCEPIA analysis on h5ad infile.
     """
-    logger.info(f"Reading {infile} using scanpy")
-    adata = sc.read(infile)
+    # Create output directory
+    os.makedirs(outdir, exist_ok=True)
+    infile = os.path.expanduser(infile)
+    basename = os.path.basename(infile)
+    basename = os.path.splitext(basename)[0]
+    outfile = os.path.join(outdir, f"{basename}.scepia.h5ad")
+
+    logfile = os.path.join(outdir, "scepia.log")
+    logger.add(logfile, level="DEBUG", mode="w")
+
+    logger.info(f"Reading {infile} using scanpy.")
+    if os.path.isdir(infile):
+        try:
+            logger.debug(f"Trying 10x mtx directory.")
+            adata = sc.read_10x_mtx(infile)
+            adata.obs_names_make_unique()
+        except Exception as e:
+            logger.debug(f"Failed: {str(e)}.")
+            logger.debug(f"Fallback to normal sc.read().")
+            adata = sc.read(infile)
+    else:
+        adata = sc.read(infile)
+
+    if transpose:
+        logger.info("Transposing matrix.")
+        adata = adata.T
 
     logger.info(f"{adata.shape[0]} cells x {adata.shape[1]} genes")
-    logger.info("(Cells and genes mixed up? Try transposing your data.)")
+    if not transpose:
+        logger.info(
+            "(Cells and genes mixed up? Try transposing your data by adding the --transpose argument.)"
+        )
+
     if adata.raw is None or "connectivities" not in adata.obsp:
         logger.info("No processed information found (connectivity graph, clustering).")
-        logger.info("Running basic analysis.")
+        logger.info("Running basic preprocessing analysis.")
         adata = _simple_preprocess(adata)
 
     if cluster is None:
@@ -935,13 +979,6 @@ def full_analysis(
             cluster = "leiden"
         else:
             cluster = "louvain"
-
-    # Create output directory
-    os.makedirs(outdir, exist_ok=True)
-    infile = os.path.expanduser(infile)
-    basename = os.path.basename(infile)
-    basename = os.path.splitext(basename)[0]
-    outfile = os.path.join(outdir, f"{basename}.scepia.h5ad")
 
     adata = infer_motifs(
         adata,
@@ -962,7 +999,15 @@ def full_analysis(
     cellxact.columns = adata.obs_names
     cellxact.to_csv(fname, sep="\t")
 
+    fname = os.path.join(outdir, "cell_properties.txt")
+    columns = (
+        ["cell_annotation", "cluster_annotation"]
+        + (adata.uns["scepia"]["motif_activity"].index).tolist()
+        + adata.obs.columns[adata.obs.columns.str.contains("_activity$")].tolist()
+    )
+    adata.obs[columns].to_csv(fname, sep="\t")
+
     adata.write(outfile)
 
     fig = plot(adata, n_anno=40)
-    fig.savefig(os.join(outdir, "volcano.png"), dpi=600)
+    fig.savefig(os.path.join(outdir, "volcano.png"), dpi=600)
