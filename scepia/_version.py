@@ -41,8 +41,8 @@ def get_config():
     cfg.VCS = "git"
     cfg.style = "pep440"
     cfg.tag_prefix = ""
-    cfg.parentdir_prefix = "area27-"
-    cfg.versionfile_source = "area27/_version.py"
+    cfg.parentdir_prefix = "scepia-"
+    cfg.versionfile_source = "scepia/_version.py"
     cfg.verbose = False
     return cfg
 
