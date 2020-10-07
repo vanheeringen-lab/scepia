@@ -18,7 +18,7 @@ from loguru import logger
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from sklearn.linear_model import MultiTaskLassoCV
+from sklearn.linear_model import LassoCV
 from sklearn.linear_model import (  # noqa: F401
     BayesianRidge,
     LogisticRegression,
@@ -352,13 +352,13 @@ def relevant_cell_types(
     gene_df: pd.DataFrame,
     cluster: Optional[str] = "louvain",
     n_top_genes: Optional[int] = 1000,
+    max_cell_types: Optional[int] = 50,
     cv: Optional[int] = 5,
 ) -> List[str]:
     """Select relevant cell types for annotation and motif inference.
 
-    Based on Multitask Lasso regression a subset of features (cell type
-    profile) will be selected. Expression is averaged over clusters
-    and selected features are forced to be the same over all clusters.
+    Based on Lasso regression a subset of features (cell type
+    profile) will be selected. Expression is averaged over clusters.
     Requires louvain or leiden clustering to be run on the `adata` object.
 
     Parameters
@@ -371,6 +371,8 @@ def relevant_cell_types(
         Number of variable genes is used. If `n_top_genes` is greater than the
         number of hypervariable genes in `adata` then all variable genes are
         used.
+    max_cell_types : `int`, optional (default: 50)
+        Maximum number of cell types to select.
     cv : `int`, optional (default: 5)
         Folds for cross-validation
 
@@ -402,18 +404,23 @@ def relevant_cell_types(
     )
     expression = expression.loc[var_genes]
     X = gene_df.loc[var_genes]
-    g = MultiTaskLassoCV(cv=cv, n_jobs=24, selection="random")
-    g.fit(X, expression)
-    coefs = pd.DataFrame(g.coef_, index=expression.columns, columns=X.columns)
-    top = list(coefs.idxmax(axis=1).value_counts().sort_values().tail(5).index)
-    abs_sum_coefs = np.abs(coefs).sum(0).sort_values(ascending=False)
-
-    cell_types = abs_sum_coefs[abs_sum_coefs != 0].index
+    g = LassoCV(cv=cv, selection="random")
+    cell_types = pd.DataFrame(index=X.columns)
+    
+    for col in expression.columns:
+        g.fit(X, expression[col])
+        coefs = pd.DataFrame(g.coef_, index=X.columns)
+        cell_types[col] = coefs
+    
+    cell_types = cell_types.abs().sum(1).sort_values().tail(max_cell_types)
+    cell_types = cell_types[cell_types > 0].index
+    top = cell_types[-5:]
+    
     logger.info("{} out of {} selected".format(len(cell_types), gene_df.shape[1]))
     logger.info(f"Top {len(top)}:")
     for cell_type in top:
         logger.info(f" * {cell_type}")
-    return list(cell_types)
+    return cell_types
 
 
 def validate_adata(adata: AnnData) -> None:
@@ -479,6 +486,7 @@ def annotate_cells(
     dataset: str,
     cluster: Optional[str] = "louvain",
     n_top_genes: Optional[int] = 1000,
+    max_cell_types: Optional[int] = 50,
     min_annotated: Optional[int] = 50,
     select: Optional[bool] = True,
 ) -> None:
@@ -497,7 +505,7 @@ def annotate_cells(
 
     if select:
         cell_types = relevant_cell_types(
-            adata, gene_df, cluster=cluster, n_top_genes=n_top_genes
+            adata, gene_df, cluster=cluster, n_top_genes=n_top_genes, max_cell_types=max_cell_types,
         )
     else:
         logger.info("Selecting all reference cell types.")
@@ -543,6 +551,7 @@ def infer_motifs(
     dataset: str,
     cluster: Optional[str] = "louvain",
     n_top_genes: Optional[int] = 1000,
+    max_cell_types: Optional[int] = 50,
     pfm: Optional[str] = None,
     min_annotated: Optional[int] = 50,
     num_enhancers: Optional[int] = 10000,
@@ -570,6 +579,8 @@ def infer_motifs(
         Number of variable genes that is used. If `n_top_genes` is greater than the
         number of hypervariable genes in `adata` then all variable genes are
         used.
+    max_cell_types : `int`, optional (default: 50)
+        Maximum number of cell types to select.
     pfm : `str`, optional (default: None)
         Name of motif file in PFM format. The GimmeMotifs default is used
         if this parameter is not specified. This can be a filename, or a
@@ -605,6 +616,7 @@ def infer_motifs(
             cluster=cluster,
             n_top_genes=n_top_genes,
             min_annotated=min_annotated,
+            max_cell_types=max_cell_types,
         )
 
     logger.info("Linking variable genes to differential enhancers.")
