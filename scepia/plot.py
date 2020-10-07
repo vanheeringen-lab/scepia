@@ -76,23 +76,32 @@ def plot(
     adata: AnnData,
     max_pval: Optional[float] = 0.05,
     n_anno: Optional[int] = 40,
-    size_anno: Optional[float] = 7,
+    size_anno: Optional[float] = 8,
     palette: Optional[str] = None,
     alpha: Optional[float] = 0.8,
     linewidth: Optional[float] = 0,
     sizes: Optional[Tuple[int, int]] = (3, 20),
-    ax: Optional[Axes] = None,
+    n_motifs: Optional[int] = 8,
     **kwargs,
 ) -> Axes:
 
     motifs = read_motifs(adata.uns["scepia"]["pfm"], as_dict=True)
-    n_motifs = 8
 
     fig = plt.figure(figsize=(5, n_motifs * 0.75))
     gs = gridspec.GridSpec(n_motifs, 5)
 
     ax = fig.add_subplot(gs[:, :4])
-    plot_volcano_corr(adata, ax=ax, size_anno=8)
+    plot_volcano_corr(
+        adata,
+        ax=ax,
+        max_pval=max_pval,
+        n_anno=n_anno,
+        size_anno=size_anno,
+        palette=palette,
+        alpha=alpha,
+        linewidth=linewidth,
+        sizes=sizes,
+    )
 
     factors = (
         adata.uns["scepia"]["correlation"]
