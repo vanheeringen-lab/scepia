@@ -26,7 +26,7 @@ $ conda config --add channels conda-forge
 Now you can create an environment for scepia:
 
 ``` 
-conda create -n scepia python=3 adjusttext biofluff gimmemotifs scanpy leidenalg louvain loguru geosketch
+conda create -n scepia adjusttext biofluff gimmemotifs>=0.15.1 scanpy leidenalg louvain loguru geosketch
 # Note: if you want to use scepia in a Jupyter notebook, you also have to install the following packages: `ipywidgets nb_conda`.
 conda activate scepia
 ```
@@ -34,7 +34,7 @@ conda activate scepia
 Install the latest release of scepia:
 
 ```
-pip install git+https://github.com/vanheeringen-lab/scepia.git@0.3.4
+pip install git+https://github.com/vanheeringen-lab/scepia.git@0.3.5
 ```
 
 ## Usage
