@@ -57,7 +57,7 @@ Make sure of the following:
 * Gene names are used in `adata.var_names`, not Ensembl identifiers or any other gene identifiers.
 * `adata.raw` stores the raw, log-transformed single cell expression data.
 * The main `adata` object is filtered to contain only hypervariable genes.
-* Louvain clustering has been run.
+* Louvain or Leiden clustering has been run.
 
 Once these preprocessing steps are met, `infer_motifs()` can be run to infer the TF motif activity. The first time the reference data will be downloaded, so this will take somewhat longer.
 
