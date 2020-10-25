@@ -59,6 +59,9 @@ class MotifAnnData(AnnData):
         super().__init__(adata)
 
     def _remove_additional_data(self) -> None:
+        # Convert index to list
+        self.uns['scepia']['cell_types'] = list(self.uns['scepia']['cell_types'])
+        
         # Motif columns need to be removed, as the hdf5 backend cannot
         # store the data otherwise (header too long).
         self.obs = self.obs.drop(
