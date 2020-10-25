@@ -33,6 +33,17 @@ conda activate scepia
 
 ## Usage
 
+### Before using SCEPIA
+
+First install the hg38 genome through [genomepy](https://github.com/vanheeringen-lab/genomepy):
+
+```
+$ conda activate scepia
+$ genomepy install hg38
+```
+
+You only need to do this once.
+
 ### Command line
 
 Remember to activate the environment before using it
