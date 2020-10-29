@@ -173,7 +173,7 @@ def create_link_file(
     enhancers = BedTool.from_dataframe(tmp.str.split("[-:]", expand=True))
 
     # Calculating overlap with certain distance
-    g = Genome(genome).props["sizes"]["sizes"]
+    g = Genome(genome).sizes_file
     genes = BedTool(genes_file).slop(b=100000, g=g).cut([0, 1, 2, 3])
     overlap = genes.intersect(b=enhancers, wo=True)
     overlap = overlap.to_dataframe().iloc[:, 3:7]
