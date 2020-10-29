@@ -41,7 +41,8 @@ from gimmemotifs.motif import read_motifs
 from gimmemotifs.utils import pfmfile_location
 from scepia import __version__
 from scepia.plot import plot
-from scepia.util import fast_corr, locate_data
+from scepia.util import fast_corr
+from scepia.data import ScepiaDataset
 
 CACHE_DIR = os.path.join(user_cache_dir("scepia"))
 
@@ -59,9 +60,6 @@ class MotifAnnData(AnnData):
         super().__init__(adata)
 
     def _remove_additional_data(self) -> None:
-        # Convert index to list
-        self.uns['scepia']['cell_types'] = list(self.uns['scepia']['cell_types'])
-        
         # Motif columns need to be removed, as the hdf5 backend cannot
         # store the data otherwise (header too long).
         self.obs = self.obs.drop(
@@ -78,6 +76,8 @@ class MotifAnnData(AnnData):
             self.uns["scepia"][f"{k}_columns"] = self.uns["scepia"][k].columns.tolist()
             self.uns["scepia"][f"{k}_index"] = self.uns["scepia"][k].index.tolist()
             self.uns["scepia"][k] = self.uns["scepia"][k].to_numpy()
+
+        adata.uns['scepia']['cell_types'] = adata.uns['scepia']['cell_types'].tolist()
 
     def _restore_additional_data(self) -> None:
         # In this case it works for an AnnData object that contains no
@@ -216,38 +216,6 @@ def motif_mapping(
 
     m2f = pd.DataFrame({"factors": m2f})
     return m2f
-
-
-def read_enhancer_data(
-    fname: str,
-    anno_fname: Optional[str] = None,
-    anno_from: Optional[str] = None,
-    anno_to: Optional[str] = None,
-    scale: Optional[bool] = False,
-) -> pd.DataFrame:
-    if fname.endswith(".txt"):
-        df = pd.read_csv(fname, sep="\t", comment="#", index_col=0)
-    elif fname.endswith(".csv"):
-        df = pd.read_csv(fname, comment="#", index_col=0)
-    elif fname.endswith("feather"):
-        df = pd.read_feather(fname)
-        df = df.set_index(df.columns[0])
-
-    # Remove mitochondrial regions
-    df = df.loc[~df.index.str.contains("chrM")]
-
-    # Map column names using annotation file
-    if anno_fname:
-        md = pd.read_csv(anno_fname, sep="\t", comment="#")
-        if anno_from is None:
-            anno_from = md.columns[0]
-        if anno_to is None:
-            anno_to = md.columns[1]
-        md = md.set_index(anno_from)[anno_to]
-        df = df.rename(columns=md)
-        # Merge identical columns
-        df = df.groupby(df.columns, axis=1).mean()
-    return df
 
 
 def annotate_with_k27(
@@ -444,32 +412,6 @@ def validate_adata(adata: AnnData) -> None:
         raise ValueError("Please run louvain or leiden clustering first.")
 
 
-def load_reference_data(
-    config: dict, data_dir: str, reftype: Optional[str] = "gene"
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    logger.info("Loading reference data.")
-    fname_enhancers = os.path.join(data_dir, config["enhancers"])
-    fname_genes = os.path.join(data_dir, config["genes"])
-    anno_fname = config.get("anno_file")
-    if anno_fname is not None:
-        anno_fname = os.path.join(data_dir, anno_fname)
-    anno_to = config.get("anno_to")
-    anno_from = config.get("anno_from")
-
-    if reftype == "enhancer":
-        # H3K27ac signal in enhancers
-        df = read_enhancer_data(fname_enhancers, anno_fname=anno_fname, anno_to=anno_to)
-    elif reftype == "gene":
-        # H3K27ac signal summarized per gene
-        df = read_enhancer_data(
-            fname_genes, anno_fname=anno_fname, anno_to=anno_to, anno_from=anno_from
-        )
-    else:
-        raise ValueError("unknown reference data type")
-
-    return df
-
-
 def change_region_size(series: pd.Series, size: Optional[int] = 200) -> pd.Series:
     if not isinstance(series, pd.Series):
         if hasattr(series, "to_series"):
@@ -499,12 +441,8 @@ def annotate_cells(
     # Determine relevant reference cell types.
     # All other cell types will not be used for motif activity and
     # cell type annotation.
-    data_dir = locate_data(dataset)
-
-    with open(os.path.join(data_dir, "info.yaml")) as f:
-        config = load(f)
-
-    gene_df = load_reference_data(config, data_dir, reftype="gene")
+    data = ScepiaDataset(dataset)
+    gene_df = data.load_reference_data(reftype="gene")
 
     if select:
         cell_types = relevant_cell_types(
@@ -603,9 +541,7 @@ def infer_motifs(
 
     validate_adata(adata)
 
-    data_dir = locate_data(dataset)
-    with open(os.path.join(data_dir, "info.yaml")) as f:
-        config = load(f)
+    data = ScepiaDataset(dataset)
 
     logger.debug(config)
     if "scepia" not in adata.uns:
@@ -639,7 +575,7 @@ def infer_motifs(
     enh_genes = adata.var_names[adata.var_names.isin(link.index)]
     var_enhancers = change_region_size(link.loc[enh_genes, "loc"]).unique()
 
-    enhancer_df = load_reference_data(config, data_dir, reftype="enhancer")
+    enhancer_df = data.load_reference_data(reftype="enhancer")
     enhancer_df.index = change_region_size(enhancer_df.index)
     enhancer_df = enhancer_df.loc[var_enhancers, adata.uns["scepia"]["cell_types"]]
     enhancer_df = enhancer_df.groupby(enhancer_df.columns, axis=1).mean()
@@ -661,7 +597,7 @@ def infer_motifs(
     if maelstrom:
         with TemporaryDirectory() as tmpdir:
             run_maelstrom(
-                fname, "hg38", tmpdir, center=False, filter_redundant=True,
+                fname, data.genome, tmpdir, center=False, filter_redundant=True,
             )
 
             motif_act = pd.read_csv(
