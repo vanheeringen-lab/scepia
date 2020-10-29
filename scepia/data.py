@@ -57,7 +57,7 @@ class ScepiaDataset:
         if source:
             self.source = ScepiaDataset(source)
 
-   @property
+    @property
     def genome(self):
         return self.config.get("genome", "hg38")
     
