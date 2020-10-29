@@ -35,7 +35,7 @@ def area27(bamfile, outfile, window=2000, nthreads=4):
     H3K27ac read counts in 2kb windows centered at enhancer locations.
     """
     signal = generate_signal(bamfile, window=2000, nthreads=nthreads)
-    link_it_up(outfile, signal)
+    link_it_up(signal, outfile=outfile)
 
 
 @click.command("infer_motifs", short_help="Run SCEPIA motif inference on any scanpy-compatible file.")

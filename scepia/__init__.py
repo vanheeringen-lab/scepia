@@ -191,8 +191,8 @@ def create_link_file(
 
 
 def link_it_up(
-    outfile: str,
     signal: pd.DataFrame,
+    outfile: Optional[str] = None,
     dataset: Optional[str] = "ENCODE",
     meanstd_file: Optional[str] = None,
     genes_file: Optional[str] = None,
@@ -286,8 +286,11 @@ def link_it_up(
         .sum()[["contrib"]]
     )
     link = link.join(ens2name).dropna().set_index("name")
-    logger.info(f"Writing output file {outfile}\n")
-    link.to_csv(outfile, sep="\t")
+    if outfile:
+        logger.info(f"Writing output file {outfile}\n")
+        link.to_csv(outfile, sep="\t")
+    else:
+        return link
 
 
 def generate_signal(
