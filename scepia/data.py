@@ -17,7 +17,7 @@ class ScepiaDataset:
             self.config = yaml.load(f, Loader=yaml.FullLoader)
         
         self.source = None
-        source = self.config.get(source, None)
+        source = self.config.get("source", None)
         if source:
             self.source = ScepiaDataset(source)
 
@@ -85,3 +85,22 @@ class ScepiaDataset:
     def genome(self):
         return self.config.get("genome", "hg38")
 
+    @property
+    def meanstd_file(self):
+        return self.config["meanstd_file"]
+
+    @property
+    def gene_mapping(self):
+        return self.config.get("gene_mapping")
+    
+    @property
+    def gene_file(self):
+        return self.config.get("gene_file")
+
+    @property
+    def version(self):
+        return self.config.get("version", "0.0.0")
+
+    @property
+    def schema_version(self):
+        return self.config.get("schema_version", "0.0.0")
