@@ -26,6 +26,7 @@ logger.add(
 )
 
 CACHE_DIR = os.path.join(xdg.XDG_CACHE_HOME, "scepia")
+
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR)
 
@@ -165,6 +166,7 @@ def weigh_distance(dist: float) -> float:
 def create_link_file(
     meanstd_file: str, genes_file: str, genome: Optional[str] = "hg38"
 ) -> pd.DataFrame:
+    meanstd_file = str(meanstd_file)
     # Read enhancer locations
     if meanstd_file.endswith("feather"):
         tmp = pd.read_feather(meanstd_file)["index"]
