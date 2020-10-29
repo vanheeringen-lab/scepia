@@ -1,6 +1,7 @@
 import os
 from typing import Optional
 import yaml
+from pathlib import Path
 
 from loguru import logger
 import pandas as pd
@@ -11,7 +12,7 @@ from scepia.util import locate_data
 class ScepiaDataset:
     def __init__(self, name):
 
-        self.data_dir = locate_data(name)
+        self.data_dir = Path(locate_data(name))
 
         with open(os.path.join(self.data_dir, "info.yaml")) as f:
             self.config = yaml.load(f, Loader=yaml.FullLoader)
@@ -87,15 +88,19 @@ class ScepiaDataset:
 
     @property
     def meanstd_file(self):
-        return self.config["meanstd_file"]
+        return self.data_dir / self.config["meanstd_file"]
 
     @property
     def gene_mapping(self):
-        return self.config.get("gene_mapping")
+        return self.data_dir / self.config.get("gene_mapping")
     
     @property
     def gene_file(self):
-        return self.config.get("gene_file")
+        return self.data_dir / self.config.get("gene_file")
+    
+    @property
+    def gene_file(self):
+        return self.data_dir / self.config.get("target_file")
 
     @property
     def version(self):
