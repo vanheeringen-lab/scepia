@@ -43,6 +43,7 @@ def splitextgz(fname: str) -> str:
     str
         Filename without .gz extension.
     """
+    fname = str(fname)
     if fname.endswith(".gz"):
         fname = os.path.splitext(fname)[0]
     return os.path.splitext(os.path.basename(fname))[0]
@@ -192,6 +193,7 @@ def create_link_file(
 def link_it_up(
     outfile: str,
     signal: pd.DataFrame,
+    dataset: Optional[str] = "ENCODE",
     meanstd_file: Optional[str] = None,
     genes_file: Optional[str] = None,
     names_file: Optional[str] = None,
@@ -216,17 +218,18 @@ def link_it_up(
     threshold : float, optional
         Only use enhancers with at least a signal above threshold. Default is 2.0.
     """
+    if None in [meanstd_file, genes_file, names_file]:
+        data = ScepiaDataset(dataset)
+        
     if meanstd_file is None:
-        meanstd_file = resource_filename(__name__, "data/remap.hg38.meanstd.tsv.gz")
+        meanstd_file = str(data.meanstd_file)
     if genes_file is None:
-        genes_file = resource_filename(
-            __name__, "data/gencode.v30.TSS.all_transcripts.merged1kb.bed.gz"
-        )
+        genes_file = str(data.genes_file)
     if names_file is None:
-        names_file = resource_filename(__name__, "data/ens2name.txt")
+        names_file = str(data.genes_mapping)
 
     ens2name = pd.read_csv(names_file, sep="\t", index_col=0, names=["gene", "name"])
-
+    
     link_file = os.path.join(
         CACHE_DIR,
         ".".join((splitextgz(meanstd_file), splitextgz(genes_file), "feather")),
@@ -290,6 +293,7 @@ def link_it_up(
 def generate_signal(
     bam_file: str,
     window: int,
+    dataset: Optional[str] = "ENCODE",
     meanstd_file: Optional[str] = None,
     target_file: Optional[str] = None,
     nthreads: Optional[int] = 4,
@@ -317,11 +321,14 @@ def generate_signal(
     pandas.DataFrame
         DataFrame containing normalized signal
     """
+    if None in [meanstd_file, target_file]:
+        data = ScepiaDataset(dataset)
+    
     if meanstd_file is None:
-        meanstd_file = resource_filename(__name__, "data/remap.hg38.meanstd.tsv.gz")
+        meanstd_file = str(data.meanstd_file)
     if target_file is None:
-        target_file = resource_filename(__name__, "data/remap.hg38.target.npz")
-
+        target_file = str(data.target_file)
+    
     with NamedTemporaryFile(prefix=f"scepia.", suffix=".bed") as f:
         if meanstd_file.endswith("feather"):
             meanstd = pd.read_feather(meanstd_file)

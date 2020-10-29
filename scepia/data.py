@@ -85,6 +85,10 @@ class ScepiaDataset:
     @property
     def genome(self):
         return self.config.get("genome", "hg38")
+    
+    @property
+    def window(self):
+        return int(self.config.get("window", 2000))
 
     @property
     def meanstd_file(self):
@@ -99,7 +103,7 @@ class ScepiaDataset:
         return self.data_dir / self.config.get("gene_file")
     
     @property
-    def gene_file(self):
+    def target_file(self):
         return self.data_dir / self.config.get("target_file")
 
     @property
