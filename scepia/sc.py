@@ -684,11 +684,11 @@ def correlate_tf_motifs(
         my_adata = adata.copy()
         my_adata = my_adata[idx]
 
-    detected = (my_adata.raw.var_names.isin(unique_factors)) & (
+    detected = (my_adata.raw.var_names.str.upper().isin(unique_factors)) & (
         (my_adata.raw.X > 0).sum(0) > 3
     )
     detected = np.squeeze(np.asarray(detected))
-    unique_factors = my_adata.raw.var_names[detected]
+    unique_factors = my_adata.raw.var_names[detected].str.upper()
 
     # Get the expression for all TFs
     expression = (
