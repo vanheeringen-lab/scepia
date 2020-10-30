@@ -19,16 +19,17 @@ from scepia import create_link_file, generate_signal, link_it_up
 
 __schema_version__ = "0.1.0"
 
-def _create_gene_table(df, meanstd_file, gene_file, gene_mapping):
+def _create_gene_table(df, meanstd_file, gene_file, gene_mapping, genome=None, link_file=None):
     logger.info("Calculating gene-based values")
     genes = None
     for exp in tqdm(df.columns):
-        try:
             tmp = link_it_up(
                 df[exp].to_frame("signal"), 
                 meanstd_file=meanstd_file, 
                 genes_file=gene_file, 
                 names_file=gene_mapping,
+                genome=genome,
+                link_file=link_file
             )
             tmp.columns = [exp]
             tmp = tmp.sort_values(exp)
@@ -38,8 +39,8 @@ def _create_gene_table(df, meanstd_file, gene_file, gene_mapping):
                 genes = tmp
             else:
                 genes = pd.concat((genes, tmp), axis=1)#genes.join(tmp, how="outer")
-        except:
-            pass
+        #except Exception as e:
+        #    logger.info(str(e))
     genes = genes.fillna(0)
     return genes
 
@@ -236,14 +237,14 @@ class ScepiaDataset:
 
         meanstd.to_csv(meanstd_file, compression="gzip", index=False, sep="\t")
         df.index.rename("loc", inplace=True)
-        df.reset_index().to_feather(f"{outdir}/enhancers.feather")
         df = df.sub(df.mean(1), axis=0)
         df = df.div(df.std(1), axis=0)
+        df.reset_index().to_feather(f"{outdir}/enhancers.feather")
 
         link = create_link_file(meanstd_file, gene_file, genome="mm10")
         link.to_feather(link_file)
         
-        genes = _create_gene_table(df, meanstd_file, gene_file, gene_mapping)
+        genes = _create_gene_table(df, meanstd_file, gene_file, gene_mapping, genome=genome, link_file=link_file)
         genes.to_csv(f"{outdir}/genes.txt", sep="\t")
         
         with open(f"{outdir}/info.yaml", "w") as f:
@@ -280,7 +281,7 @@ class ScepiaDataset:
             df = df.sub(meanstd["mean"].values, axis=0)
             df = df.div(meanstd["std"].values, axis=0)
 
-        genes = _create_gene_table(df, self.meanstd_file, self.gene_file, self.gene_mapping)
+        genes = _create_gene_table(df, self.meanstd_file, self.gene_file, self.gene_mapping, genome=self.genome, link_file=self.link_file)
         logger.info(f"Writing reference to {outdir}")
         
         df.reset_index().to_feather(outdir / "enhancers.feather")

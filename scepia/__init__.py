@@ -199,7 +199,10 @@ def link_it_up(
     meanstd_file: Optional[str] = None,
     genes_file: Optional[str] = None,
     names_file: Optional[str] = None,
-    threshold: Optional[float] = 2.0,
+    threshold: Optional[float] = 1.0,
+    genome: Optional[str] = None,
+    link_file: Optional[str] = None,
+
 ):
     """Return file with H3K27ac "score" per gene.
 
@@ -218,7 +221,7 @@ def link_it_up(
     names_file : str, optional
         Name of the file linking gene identifiers to gene names.
     threshold : float, optional
-        Only use enhancers with at least a signal above threshold. Default is 2.0.
+        Only use enhancers with at least a signal above threshold. Default is 1.0.
     """
     if None in [meanstd_file, genes_file, names_file]:
         data = ScepiaDataset(dataset)
@@ -232,15 +235,17 @@ def link_it_up(
 
     ens2name = pd.read_csv(names_file, sep="\t", index_col=0, names=["gene", "name"])
     
-    link_file = os.path.join(
-        CACHE_DIR,
-        ".".join((splitextgz(meanstd_file), splitextgz(genes_file), "feather")),
-    )
+    if link_file is None:
+        link_file = os.path.join(
+            CACHE_DIR,
+            ".".join((splitextgz(meanstd_file), splitextgz(genes_file), "feather")),
+        )
 
     if not os.path.exists(link_file):
-        genome = re.sub(
-            r"[^\.]+\.(.*)\.meanstd.*", "\\1", os.path.basename(meanstd_file)
-        )
+        if genome is None:
+            genome = re.sub(
+                r"[^\.]+\.(.*)\.meanstd.*", "\\1", os.path.basename(meanstd_file)
+            )
         logger.info("Creating link file with genome {}\n".format(genome))
         link = create_link_file(meanstd_file, genes_file, genome=genome)
         logger.info(f"Saving to {CACHE_DIR}\n")
