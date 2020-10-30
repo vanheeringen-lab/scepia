@@ -542,8 +542,7 @@ def infer_motifs(
     validate_adata(adata)
 
     data = ScepiaDataset(dataset)
-
-    logger.debug(config)
+    
     if "scepia" not in adata.uns:
         adata.uns["scepia"] = {"version": __version__}
 

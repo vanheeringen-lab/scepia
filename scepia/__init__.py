@@ -20,6 +20,10 @@ from pybedtools import BedTool
 from genomepy import Genome
 from loguru import logger
 
+# TODO: Remove with new pybedtools release
+import warnings
+warnings.filterwarnings("ignore", message="line buffering")
+
 logger.remove()
 logger.add(
     sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss} - {level} - {message}", level="INFO"

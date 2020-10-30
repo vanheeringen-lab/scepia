@@ -19,30 +19,38 @@ from scepia import create_link_file, generate_signal, link_it_up
 
 __schema_version__ = "0.1.0"
 
-def _create_gene_table(df, meanstd_file, gene_file, gene_mapping, genome=None, link_file=None):
+
+def _create_gene_table(
+    df: pd.DataFram,
+    meanstd_file: str,
+    gene_file: str,
+    gene_mapping: str,
+    genome: Optional[str] = None,
+    link_file: Optional[str] = None,
+):
     logger.info("Calculating gene-based values")
     genes = None
     for exp in tqdm(df.columns):
-            tmp = link_it_up(
-                df[exp].to_frame("signal"), 
-                meanstd_file=meanstd_file, 
-                genes_file=gene_file, 
-                names_file=gene_mapping,
-                genome=genome,
-                link_file=link_file
-            )
-            tmp.columns = [exp]
-            tmp = tmp.sort_values(exp)
-            tmp = tmp[~tmp.index.duplicated(keep='last')]
-            
-            if genes is None:
-                genes = tmp
-            else:
-                genes = pd.concat((genes, tmp), axis=1)#genes.join(tmp, how="outer")
-        #except Exception as e:
-        #    logger.info(str(e))
+        tmp = link_it_up(
+            df[exp].to_frame("signal"),
+            meanstd_file=meanstd_file,
+            genes_file=gene_file,
+            names_file=gene_mapping,
+            genome=genome,
+            link_file=link_file,
+        )
+        tmp.columns = [exp]
+        tmp = tmp.sort_values(exp)
+        tmp = tmp[~tmp.index.duplicated(keep="last")]
+
+        if genes is None:
+            genes = tmp
+        else:
+            genes = pd.concat((genes, tmp), axis=1)  # genes.join(tmp, how="outer")
+
     genes = genes.fillna(0)
     return genes
+
 
 class ScepiaDataset:
     def __init__(self, name):
@@ -52,7 +60,7 @@ class ScepiaDataset:
 
         with open(os.path.join(self.data_dir, "info.yaml")) as f:
             self.config = yaml.load(f, Loader=yaml.FullLoader)
-        
+
         self.source = None
         source = self.config.get("source", None)
         if source:
@@ -61,7 +69,7 @@ class ScepiaDataset:
     @property
     def genome(self):
         return self.config.get("genome", "hg38")
-    
+
     @property
     def window(self):
         if self.source:
@@ -82,19 +90,19 @@ class ScepiaDataset:
             return self.source.gene_mapping
         else:
             return self.data_dir / self.config.get("gene_mapping")
-    
+
     @property
     def gene_file(self):
         if self.source:
             return self.source.gene_file
-        else:   
+        else:
             return self.data_dir / self.config.get("gene_file")
-    
+
     @property
     def target_file(self):
         if self.source:
             return self.source.target_file
-        else:   
+        else:
             return self.data_dir / self.config.get("target_file")
 
     @property
@@ -105,7 +113,9 @@ class ScepiaDataset:
     def schema_version(self):
         return self.config.get("schema_version", "0.0.0")
 
-    def load_reference_data(self, reftype: Optional[str] = "gene") -> pd.DataFrame:
+    def load_reference_data(
+        self, reftype: Optional[str] = "gene", scale: Optional[bool] = True
+    ) -> pd.DataFrame:
         logger.info("Loading reference data.")
         fname_enhancers = os.path.join(self.data_dir, self.config["enhancers"])
         fname_genes = os.path.join(self.data_dir, self.config["genes"])
@@ -118,7 +128,10 @@ class ScepiaDataset:
         if reftype == "enhancer":
             # H3K27ac signal in enhancers
             df = self._read_data_file(
-                fname_enhancers, anno_fname=anno_fname, anno_to=anno_to, anno_from=anno_from
+                fname_enhancers,
+                anno_fname=anno_fname,
+                anno_to=anno_to,
+                anno_from=anno_from,
             )
         elif reftype == "gene":
             # H3K27ac signal summarized per gene
@@ -129,8 +142,12 @@ class ScepiaDataset:
             raise ValueError("unknown reference data type")
 
         if self.source:
-            df = df.join(self.source.load_reference_data(reftype=reftype))
-        
+            df = df.join(self.source.load_reference_data(reftype=reftype, scale=False))
+
+        if scale:
+            df = df.sub(df.mean(1), axis=1)
+            df = df.div(df.std(1), axis=1)
+
         return df
 
     def _read_data_file(
@@ -165,75 +182,91 @@ class ScepiaDataset:
             df = df.groupby(df.columns, axis=1).mean()
         return df
 
-
     @classmethod
-    def create(self, outdir, bam_files, enhancer_file, annotation_file, genome, window=2000, 
-                    anno_file=None, anno_from=None, anno_to=None, gene_mapping=None, version="0.1.0"):
+    def create(
+        self,
+        outdir: str,
+        bam_files: list[str],
+        enhancer_file: str,
+        annotation_file: str,
+        genome: str,
+        window: Optional[int] = 2000,
+        anno_file: Optional[str] = None,
+        anno_from: Optional[str] = None,
+        anno_to: Optional[str] = None,
+        gene_mapping: Optional[str] = None,
+        version: Optional[str] = "0.1.0",
+    ) -> ScepiaDataset:
         outdir = Path(outdir)
         basename = outdir.name
         meanstd_file = outdir / f"{basename}.{genome}.meanstd.tsv.gz"
         target_file = outdir / f"{basename}.{genome}.target.npz"
         gene_file = outdir / "annotation.tss.merged1kb.bed"
         link_file = outdir / "enhancers2genes.feather"
-        
+
         g = Genome(genome)
         if not os.path.exists(outdir):
             os.makedirs(outdir)
-        
+
         info = {
-            "genes":"genes.txt",
+            "genes": "genes.txt",
             "enhancers": "enhancers.feather",
-            'link_file': os.path.basename(link_file),
+            "link_file": os.path.basename(link_file),
             "genome": genome,
             "window": window,
-            'meanstd_file': os.path.basename(meanstd_file),
-            'target_file': os.path.basename(target_file),
-            'gene_file': os.path.basename(gene_file),
-            'version': version,
-            'schema_version': __schema_version__,
+            "meanstd_file": os.path.basename(meanstd_file),
+            "target_file": os.path.basename(target_file),
+            "gene_file": os.path.basename(gene_file),
+            "version": version,
+            "schema_version": __schema_version__,
         }
-        
+
         if anno_file is not None:
             if not os.path.exists(anno_file):
                 raise ValueError(f"{anno_file} does not exist")
             if anno_from is None or anno_to is None:
                 raise ValueError("Need anno_from and anno_to columns!")
             copyfile(anno_file, outdir / os.path.basename(anno_file))
-            info.update({"anno_file": os.path.basename(anno_file),
-            'anno_from': anno_from,
-            'anno_to': anno_to,})
-    
+            info.update(
+                {
+                    "anno_file": os.path.basename(anno_file),
+                    "anno_from": anno_from,
+                    "anno_to": anno_to,
+                }
+            )
+
         if gene_mapping is not None:
             if not os.path.exists(gene_mapping):
                 raise ValueError(f"{gene_mapping} does not exist")
             copyfile(gene_mapping, outdir / os.path.basename(gene_mapping))
-            info['gene_mapping'] =  os.path.basename(gene_mapping)
+            info["gene_mapping"] = os.path.basename(gene_mapping)
 
-        
         logger.info("processing gene annotation")
         # Convert gene annotation
         b = BedTool(annotation_file)
         b = b.flank(g=g.sizes_file, l=1, r=0).sort().merge(d=1000, c=4, o="distinct")
         b.saveas(str(gene_file))
-        
+
         logger.info("processing BAM files")
         # create coverage_table
         df = coverage_table(
-            enhancer_file, 
-            bam_files, 
-            window=window, 
-            log_transform=True, 
-            normalization="quantile", 
-            ncpus=12
+            enhancer_file,
+            bam_files,
+            window=window,
+            log_transform=True,
+            normalization="quantile",
+            ncpus=12,
         )
-        
+
         df.index.rename("loc", inplace=True)
         df.reset_index().to_feather(f"{outdir}/enhancers.feather")
-        np.savez(target_file, target=df.iloc[:,0].sort_values())
-        meanstd = pd.DataFrame(index=df.index, )
+        np.savez(target_file, target=df.iloc[:, 0].sort_values())
+        meanstd = pd.DataFrame(
+            index=df.index,
+        )
         meanstd["mean"] = df.mean(1)
         meanstd["std"] = df.std(1)
-        meanstd = meanstd.reset_index().rename(columns={"loc":"index"})
+        meanstd = meanstd.reset_index().rename(columns={"loc": "index"})
 
         meanstd.to_csv(meanstd_file, compression="gzip", index=False, sep="\t")
         df.index.rename("loc", inplace=True)
@@ -243,37 +276,41 @@ class ScepiaDataset:
 
         link = create_link_file(meanstd_file, gene_file, genome="mm10")
         link.to_feather(link_file)
-        
-        genes = _create_gene_table(df, meanstd_file, gene_file, gene_mapping, genome=genome, link_file=link_file)
+
+        genes = _create_gene_table(
+            df,
+            meanstd_file,
+            gene_file,
+            gene_mapping,
+            genome=genome,
+            link_file=link_file,
+        )
         genes.to_csv(f"{outdir}/genes.txt", sep="\t")
-        
+
         with open(f"{outdir}/info.yaml", "w") as f:
             yaml.dump(info, f)
-        
+
         return ScepiaDataset(outdir)
-            
-    def extend(self, outdir, bam_files):
-        
+
+    def extend(self, outdir: str, bam_files: list[str]) -> ScepiaDataset:
+
         if self.schema_version == "0.0.0":
             raise ValueError("dataset does not support custom sources")
-        
+
         outdir = Path(outdir)
         if not os.path.exists(outdir):
             os.makedirs(outdir)
-        
+
         meanstd = pd.read_table(self.meanstd_file)
         bed = meanstd["index"].str.replace("[:-]", "\t").to_frame()
-        
+
         logger.info("Processing BAM files")
         with NamedTemporaryFile() as f:
             bed.to_csv(f.name, index=False, header=False)
-        
+
             # create coverage_table
             df = coverage_table(
-                peakfile=f.name, 
-                datafiles=bam_files,  
-                window=self.window, 
-                ncpus=12
+                peakfile=f.name, datafiles=bam_files, window=self.window, ncpus=12
             )
             target = np.load(self.target_file)["target"]
             df = qnorm.quantile_normalize(df, target=target)
@@ -281,21 +318,28 @@ class ScepiaDataset:
             df = df.sub(meanstd["mean"].values, axis=0)
             df = df.div(meanstd["std"].values, axis=0)
 
-        genes = _create_gene_table(df, self.meanstd_file, self.gene_file, self.gene_mapping, genome=self.genome, link_file=self.link_file)
+        genes = _create_gene_table(
+            df,
+            self.meanstd_file,
+            self.gene_file,
+            self.gene_mapping,
+            genome=self.genome,
+            link_file=self.link_file,
+        )
         logger.info(f"Writing reference to {outdir}")
-        
+
         df.reset_index().to_feather(outdir / "enhancers.feather")
         genes.to_csv(outdir / "genes.txt", sep="\t")
-        
+
         info = {
-            "genes":"genes.txt",
+            "genes": "genes.txt",
             "enhancers": "enhancers.feather",
             "source": self.name,
             "genome": self.genome,
-            'schema_version': __schema_version__,
+            "schema_version": __schema_version__,
         }
 
         with open(outdir / "info.yaml", "w") as f:
             yaml.dump(info, f)
-        
+
         return ScepiaDataset(outdir)
