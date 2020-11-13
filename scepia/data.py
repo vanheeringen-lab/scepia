@@ -186,7 +186,7 @@ class ScepiaDataset:
     def create(
         self,
         outdir: str,
-        bam_files: list[str],
+        data_files: list[str],
         enhancer_file: str,
         annotation_file: str,
         genome: str,
@@ -244,10 +244,12 @@ class ScepiaDataset:
         logger.info("processing gene annotation")
         # Convert gene annotation
         b = BedTool(annotation_file)
+        chroms = set([f.chrom for f in pybedtools.BedTool(enhancer_file)])
+        b = b.filter(lambda x: x.chrom in chroms)
         b = b.flank(g=g.sizes_file, l=1, r=0).sort().merge(d=1000, c=4, o="distinct")
         b.saveas(str(gene_file))
 
-        logger.info("processing BAM files")
+        logger.info("processing data files")
         # create coverage_table
         df = coverage_table(
             enhancer_file,
