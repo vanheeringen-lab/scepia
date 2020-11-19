@@ -270,11 +270,12 @@ def link_it_up(
 
     link = link.join(
         signal[signal["signal"] >= threshold][["signal"]], on="loc"
-    ).dropna()
+    )
     link = link.dropna()
-
-    # Split multiple genes
-    link["gene"] = link["gene"].str.split(",")
+    link = link.join(genes, on="gene")
+    
+	# Split multiple genes
+    link["gene"] = link["gene"].str.split(",").values
     lst_col = "gene"
     link = pd.DataFrame(
         {
@@ -282,7 +283,6 @@ def link_it_up(
             for col in link.columns.drop(lst_col)
         }
     ).assign(**{lst_col: np.concatenate(link[lst_col].values)})[link.columns]
-    link = link.join(genes, on="gene")
 
     # Distance weight
     link["dist"] = link["start"] - link["pos"]
@@ -290,20 +290,22 @@ def link_it_up(
 
     link["contrib"] = link["dist_weight"] * link["signal"]
     link = link.sort_values("contrib", ascending=False)[["gene", "loc", "contrib"]]
+    link = link.join(ens2name, on="gene").dropna().set_index("name")
     link = (
-        link.groupby(["gene", "loc"])
+        link.groupby(["name", "loc"])
         .first()
         .reset_index()
-        .groupby("gene")
+        .groupby("name")
         .sum()[["contrib"]]
+        .dropna()
     )
-    link = link.join(ens2name).dropna().set_index("name")
-    if outfile:
+    
+	if outfile:
         logger.info(f"Writing output file {outfile}\n")
         link.to_csv(outfile, sep="\t")
     else:
         return link
-
+ 
 
 def generate_signal(
     bam_file: str,
