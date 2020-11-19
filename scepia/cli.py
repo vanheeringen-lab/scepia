@@ -38,12 +38,13 @@ def area27(bamfile, outfile, window=2000, nthreads=4):
     link_it_up(signal, outfile=outfile)
 
 
-@click.command("infer_motifs", short_help="Run SCEPIA motif inference on any scanpy-compatible file.")
+@click.command(
+    "infer_motifs",
+    short_help="Run SCEPIA motif inference on any scanpy-compatible file.",
+)
 @click.argument("infile")
 @click.argument("outdir")
-@click.option(
-    "--transpose", is_flag=True, default=False, help="Transpose matrix."
-)
+@click.option("--transpose", is_flag=True, default=False, help="Transpose matrix.")
 @click.option(
     "-c", "--cluster", help="cluster name (default checks for 'louvain' or 'leiden')."
 )
@@ -69,7 +70,14 @@ def area27(bamfile, outfile, window=2000, nthreads=4):
     help="Number of enhancers to use for motif activity (10000).",
 )
 def infer_motifs(
-    infile, outdir, transpose, cluster, n_top_genes, pfmfile, min_annotated, num_enhancers
+    infile,
+    outdir,
+    transpose,
+    cluster,
+    n_top_genes,
+    pfmfile,
+    min_annotated,
+    num_enhancers,
 ):
     """
     Infer motifs.

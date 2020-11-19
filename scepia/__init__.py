@@ -9,7 +9,6 @@ import re
 import sys
 from tempfile import NamedTemporaryFile
 from multiprocessing import Pool
-from pkg_resources import resource_filename
 from typing import Optional, List
 
 import xdg
@@ -20,8 +19,11 @@ from pybedtools import BedTool
 from genomepy import Genome
 from loguru import logger
 
+from scepia.data import ScepiaDataset
+
 # TODO: Remove with new pybedtools release
 import warnings
+
 warnings.filterwarnings("ignore", message="line buffering")
 
 logger.remove()
@@ -206,7 +208,6 @@ def link_it_up(
     threshold: Optional[float] = 1.0,
     genome: Optional[str] = None,
     link_file: Optional[str] = None,
-
 ):
     """Return file with H3K27ac "score" per gene.
 
@@ -229,7 +230,7 @@ def link_it_up(
     """
     if None in [meanstd_file, genes_file, names_file]:
         data = ScepiaDataset(dataset)
-        
+
     if meanstd_file is None:
         meanstd_file = str(data.meanstd_file)
     if genes_file is None:
@@ -238,7 +239,7 @@ def link_it_up(
         names_file = str(data.genes_mapping)
 
     ens2name = pd.read_csv(names_file, sep="\t", index_col=0, names=["gene", "name"])
-    
+
     if link_file is None:
         link_file = os.path.join(
             CACHE_DIR,
@@ -337,12 +338,12 @@ def generate_signal(
     """
     if None in [meanstd_file, target_file]:
         data = ScepiaDataset(dataset)
-    
+
     if meanstd_file is None:
         meanstd_file = str(data.meanstd_file)
     if target_file is None:
         target_file = str(data.target_file)
-    
+
     with NamedTemporaryFile(prefix=f"scepia.", suffix=".bed") as f:
         if meanstd_file.endswith("feather"):
             meanstd = pd.read_feather(meanstd_file)

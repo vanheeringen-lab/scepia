@@ -1,5 +1,5 @@
 import os
-from typing import Optional,List,Type,TypeVar
+from typing import Optional, List, Type, TypeVar
 
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -16,10 +16,11 @@ import qnorm
 import yaml
 
 from scepia.util import locate_data
-from scepia import create_link_file, generate_signal, link_it_up
+from scepia import create_link_file, link_it_up
 
 __schema_version__ = "0.1.0"
-T = TypeVar('T', bound='ScepiaDataset')
+T = TypeVar("T", bound="ScepiaDataset")
+
 
 def _create_gene_table(
     df: pd.DataFrame,
@@ -67,15 +68,17 @@ class ScepiaDataset:
         source = self.config.get("source", None)
         if source:
             self.source = ScepiaDataset(source)
-        
+
         try:
             Genome(self.genome)
         except FileNotFoundError:
             logger.error(f"Genome {self.genome} is needed for this dataset.")
             logger.error("Please install it with genomepy.")
             logger.error(f"Command-line: genomepy install {self.genome}")
-            logger.error(f'Python: import genomepy; genomepy.install_genome("{self.genome}")') 
-        
+            logger.error(
+                f'Python: import genomepy; genomepy.install_genome("{self.genome}")'
+            )
+
     @property
     def genome(self):
         return self.config.get("genome", "hg38")
@@ -121,7 +124,7 @@ class ScepiaDataset:
             return self.source.link_file
         else:
             return self.data_dir / self.config.get("link_file")
-    
+
     @property
     def version(self):
         return self.config.get("version", "0.0.0")
@@ -133,7 +136,7 @@ class ScepiaDataset:
     def load_reference_data(
         self, reftype: Optional[str] = "gene", scale: Optional[bool] = True
     ) -> pd.DataFrame:
-        
+
         if reftype not in ["enhancer", "gene"]:
             raise ValueError("unknown reference data type")
 
@@ -162,7 +165,7 @@ class ScepiaDataset:
 
         if self.source:
             df = df.join(self.source.load_reference_data(reftype=reftype, scale=False))
-        
+
         df = df[df.max(1) > 0]
         df = df.fillna(0)
 
@@ -267,10 +270,10 @@ class ScepiaDataset:
         logger.info("processing gene annotation")
         # Convert gene annotation
         b = BedTool(annotation_file)
-        chroms = set([f.chrom for f in pybedtools.BedTool(enhancer_file)])
+        chroms = set([f.chrom for f in BedTool(enhancer_file)])
         b = b.filter(lambda x: x.chrom in chroms)
 
-        b = b.flank(g=g.sizes_file, l=1, r=0).sort().merge(d=1000, c=4, o="distinct")
+        b = b.flank(g=g.sizes_file, l=1, r=0).sort().merge(d=1000, c=4, o="distinct")  # noqa: E741
         b.saveas(str(gene_file))
 
         logger.info("processing data files")
@@ -287,9 +290,7 @@ class ScepiaDataset:
         df.index.rename("loc", inplace=True)
         df.reset_index().to_feather(f"{outdir}/enhancers.feather")
         np.savez(target_file, target=df.iloc[:, 0].sort_values())
-        meanstd = pd.DataFrame(
-            index=df.index,
-        )
+        meanstd = pd.DataFrame(index=df.index,)
         meanstd["mean"] = df.mean(1)
         meanstd["std"] = df.std(1)
         meanstd = meanstd.reset_index().rename(columns={"loc": "index"})
@@ -310,7 +311,7 @@ class ScepiaDataset:
             gene_mapping,
             genome=genome,
             link_file=link_file,
-            threshold=threshold
+            threshold=threshold,
         )
         genes.to_csv(f"{outdir}/genes.txt", sep="\t")
 

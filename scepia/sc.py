@@ -18,7 +18,6 @@ from loguru import logger
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from sklearn.linear_model import LassoCV
 from sklearn.linear_model import (  # noqa: F401
     BayesianRidge,
     LogisticRegression,
@@ -32,7 +31,6 @@ from scipy.sparse import issparse
 from scipy.stats import percentileofscore, combine_pvalues
 from statsmodels.stats.multitest import multipletests
 from tqdm.auto import tqdm
-from yaml import load
 import geosketch
 
 from gimmemotifs.moap import moap
@@ -77,7 +75,7 @@ class MotifAnnData(AnnData):
             self.uns["scepia"][f"{k}_index"] = self.uns["scepia"][k].index.tolist()
             self.uns["scepia"][k] = self.uns["scepia"][k].to_numpy()
 
-        adata.uns['scepia']['cell_types'] = adata.uns['scepia']['cell_types'].tolist()
+        self.uns["scepia"]["cell_types"] = self.uns["scepia"]["cell_types"].tolist()
 
     def _restore_additional_data(self) -> None:
         # In this case it works for an AnnData object that contains no
@@ -238,19 +236,23 @@ def annotate_with_k27(
     # Create expression DataFrame based on common genes
     if use_raw:
         expression = pd.DataFrame(
-            np.log1p(adata.raw.X[:, adata.var_names.str.upper().isin(gene_df.index)].todense()),
+            np.log1p(
+                adata.raw.X[
+                    :, adata.var_names.str.upper().isin(gene_df.index)
+                ].todense()
+            ),
             index=adata.obs_names,
             columns=common_genes,
         ).T
     else:
         expression = adata.X[:, adata.var_names.str.upper().isin(gene_df.index)]
         expression = (
-            np.squeeze(np.asarray(expression.todense())) if issparse(expression) else expression
+            np.squeeze(np.asarray(expression.todense()))
+            if issparse(expression)
+            else expression
         )
         expression = pd.DataFrame(
-            expression,
-            index=adata.obs_names,
-            columns=common_genes,
+            expression, index=adata.obs_names, columns=common_genes,
         ).T
 
     if center_expression:
@@ -270,7 +272,7 @@ def annotate_with_k27(
                 ids[adata.obs[cluster] == cell_type], N, replace=False
             )
         idxs.extend(idx)
-    
+
     X = gene_df.loc[common_genes]
     model = getattr(sys.modules[__name__], model)()
     kf = KFold(n_splits=5)
@@ -370,27 +372,28 @@ def relevant_cell_types(
     expression = expression.groupby(expression.columns, axis=1).mean()
 
     var_genes = (
-        adata.var.loc[adata.var_names.str.upper().isin(common_genes), "dispersions_norm"]
+        adata.var.loc[
+            adata.var_names.str.upper().isin(common_genes), "dispersions_norm"
+        ]
         .sort_values()
         .tail(n_top_genes)
-        .index
-        .str.upper()
+        .index.str.upper()
     )
     logger.info(f"Using {len(var_genes)} hypervariable common genes")
     expression = expression.loc[var_genes]
     X = gene_df.loc[var_genes]
     g = LassoCV(cv=cv, selection="random")
     cell_types = pd.DataFrame(index=X.columns)
-    
+
     for col in expression.columns:
         g.fit(X, expression[col])
         coefs = pd.DataFrame(g.coef_, index=X.columns)
         cell_types[col] = coefs
-    
+
     cell_types = cell_types.abs().sum(1).sort_values().tail(max_cell_types)
     cell_types = cell_types[cell_types > 0].index
     top = cell_types[-5:]
-    
+
     logger.info("{} out of {} selected".format(len(cell_types), gene_df.shape[1]))
     logger.info(f"Top {len(top)}:")
     for cell_type in top:
@@ -450,7 +453,11 @@ def annotate_cells(
 
     if select:
         cell_types = relevant_cell_types(
-            adata, gene_df, cluster=cluster, n_top_genes=n_top_genes, max_cell_types=max_cell_types,
+            adata,
+            gene_df,
+            cluster=cluster,
+            n_top_genes=n_top_genes,
+            max_cell_types=max_cell_types,
         )
     else:
         logger.info("Selecting all reference cell types.")
@@ -546,7 +553,7 @@ def infer_motifs(
     validate_adata(adata)
 
     data = ScepiaDataset(dataset)
-    
+
     if "scepia" not in adata.uns:
         adata.uns["scepia"] = {"version": __version__}
 
@@ -574,7 +581,9 @@ def infer_motifs(
         link = link.set_index("name")
 
     link.index = link.index.str.upper()
-    enh_genes = adata.var_names[adata.var_names.str.upper().isin(link.index)].str.upper()
+    enh_genes = adata.var_names[
+        adata.var_names.str.upper().isin(link.index)
+    ].str.upper()
     var_enhancers = change_region_size(link.loc[enh_genes, "loc"]).unique()
 
     enhancer_df = data.load_reference_data(reftype="enhancer")
