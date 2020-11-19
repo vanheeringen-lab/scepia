@@ -268,13 +268,11 @@ def link_it_up(
         names=["chrom", "start", "gene", "strand"],
     )
 
-    link = link.join(
-        signal[signal["signal"] >= threshold][["signal"]], on="loc"
-    )
+    link = link.join(signal[signal["signal"] >= threshold][["signal"]], on="loc")
     link = link.dropna()
     link = link.join(genes, on="gene")
-    
-	# Split multiple genes
+
+    # Split multiple genes
     link["gene"] = link["gene"].str.split(",").values
     lst_col = "gene"
     link = pd.DataFrame(
@@ -299,13 +297,13 @@ def link_it_up(
         .sum()[["contrib"]]
         .dropna()
     )
-    
-	if outfile:
+
+    if outfile:
         logger.info(f"Writing output file {outfile}\n")
         link.to_csv(outfile, sep="\t")
     else:
         return link
- 
+
 
 def generate_signal(
     bam_file: str,
