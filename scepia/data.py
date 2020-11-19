@@ -1,5 +1,6 @@
 import os
-from typing import Optional
+from typing import Optional,List,Type,TypeVar
+
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -18,15 +19,16 @@ from scepia.util import locate_data
 from scepia import create_link_file, generate_signal, link_it_up
 
 __schema_version__ = "0.1.0"
-
+T = TypeVar('T', bound='ScepiaDataset')
 
 def _create_gene_table(
-    df: pd.DataFram,
+    df: pd.DataFrame,
     meanstd_file: str,
     gene_file: str,
     gene_mapping: str,
     genome: Optional[str] = None,
     link_file: Optional[str] = None,
+    threshold: Optional[float] = 1.0,
 ):
     logger.info("Calculating gene-based values")
     genes = None
@@ -38,6 +40,7 @@ def _create_gene_table(
             names_file=gene_mapping,
             genome=genome,
             link_file=link_file,
+            threshold=threshold,
         )
         tmp.columns = [exp]
         tmp = tmp.sort_values(exp)
@@ -54,7 +57,6 @@ def _create_gene_table(
 
 class ScepiaDataset:
     def __init__(self, name):
-        logger.info(name)
         self.name = str(name)
         self.data_dir = Path(locate_data(name))
 
@@ -106,6 +108,13 @@ class ScepiaDataset:
             return self.data_dir / self.config.get("target_file")
 
     @property
+    def link_file(self):
+        if self.source:
+            return self.source.link_file
+        else:
+            return self.data_dir / self.config.get("link_file")
+    
+    @property
     def version(self):
         return self.config.get("version", "0.0.0")
 
@@ -116,7 +125,11 @@ class ScepiaDataset:
     def load_reference_data(
         self, reftype: Optional[str] = "gene", scale: Optional[bool] = True
     ) -> pd.DataFrame:
-        logger.info("Loading reference data.")
+        
+        if reftype not in ["enhancer", "gene"]:
+            raise ValueError("unknown reference data type")
+
+        logger.info(f"Loading reference data ({reftype}).")
         fname_enhancers = os.path.join(self.data_dir, self.config["enhancers"])
         fname_genes = os.path.join(self.data_dir, self.config["genes"])
         anno_fname = self.config.get("anno_file")
@@ -138,15 +151,16 @@ class ScepiaDataset:
             df = self._read_data_file(
                 fname_genes, anno_fname=anno_fname, anno_to=anno_to, anno_from=anno_from
             )
-        else:
-            raise ValueError("unknown reference data type")
 
         if self.source:
             df = df.join(self.source.load_reference_data(reftype=reftype, scale=False))
+        
+        df = df[df.max(1) > 0]
+        df = df.fillna(0)
 
         if scale:
-            df = df.sub(df.mean(1), axis=1)
-            df = df.div(df.std(1), axis=1)
+            df = df.sub(df.mean(1), axis=0)
+            df = df.div(df.std(1), axis=0)
 
         return df
 
@@ -184,9 +198,9 @@ class ScepiaDataset:
 
     @classmethod
     def create(
-        self,
+        cls: Type[T],
         outdir: str,
-        data_files: list[str],
+        data_files: List[str],
         enhancer_file: str,
         annotation_file: str,
         genome: str,
@@ -195,8 +209,9 @@ class ScepiaDataset:
         anno_from: Optional[str] = None,
         anno_to: Optional[str] = None,
         gene_mapping: Optional[str] = None,
+        threshold: Optional[float] = 1.0,
         version: Optional[str] = "0.1.0",
-    ) -> ScepiaDataset:
+    ) -> T:
         outdir = Path(outdir)
         basename = outdir.name
         meanstd_file = outdir / f"{basename}.{genome}.meanstd.tsv.gz"
@@ -246,6 +261,7 @@ class ScepiaDataset:
         b = BedTool(annotation_file)
         chroms = set([f.chrom for f in pybedtools.BedTool(enhancer_file)])
         b = b.filter(lambda x: x.chrom in chroms)
+
         b = b.flank(g=g.sizes_file, l=1, r=0).sort().merge(d=1000, c=4, o="distinct")
         b.saveas(str(gene_file))
 
@@ -253,7 +269,7 @@ class ScepiaDataset:
         # create coverage_table
         df = coverage_table(
             enhancer_file,
-            bam_files,
+            data_files,
             window=window,
             log_transform=True,
             normalization="quantile",
@@ -276,7 +292,7 @@ class ScepiaDataset:
         df = df.div(df.std(1), axis=0)
         df.reset_index().to_feather(f"{outdir}/enhancers.feather")
 
-        link = create_link_file(meanstd_file, gene_file, genome="mm10")
+        link = create_link_file(meanstd_file, gene_file, genome=genome)
         link.to_feather(link_file)
 
         genes = _create_gene_table(
@@ -286,6 +302,7 @@ class ScepiaDataset:
             gene_mapping,
             genome=genome,
             link_file=link_file,
+            threshold=threshold
         )
         genes.to_csv(f"{outdir}/genes.txt", sep="\t")
 
@@ -294,7 +311,7 @@ class ScepiaDataset:
 
         return ScepiaDataset(outdir)
 
-    def extend(self, outdir: str, bam_files: list[str]) -> ScepiaDataset:
+    def extend(self, outdir: str, data_files: List[str]) -> T:
 
         if self.schema_version == "0.0.0":
             raise ValueError("dataset does not support custom sources")
@@ -312,7 +329,7 @@ class ScepiaDataset:
 
             # create coverage_table
             df = coverage_table(
-                peakfile=f.name, datafiles=bam_files, window=self.window, ncpus=12
+                peakfile=f.name, datafiles=data_files, window=self.window, ncpus=12
             )
             target = np.load(self.target_file)["target"]
             df = qnorm.quantile_normalize(df, target=target)

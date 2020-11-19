@@ -231,18 +231,19 @@ def annotate_with_k27(
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Annotate single cell data.
     """
+    gene_df.index = gene_df.index.str.upper()
     # Only use genes that overlap
-    common_genes = adata.var_names.intersection(gene_df.index).unique()
+    common_genes = adata.var_names.str.upper().intersection(gene_df.index).unique()
     # print(common_genes)
     # Create expression DataFrame based on common genes
     if use_raw:
         expression = pd.DataFrame(
-            np.log1p(adata.raw.X[:, adata.var_names.isin(gene_df.index)].todense()),
+            np.log1p(adata.raw.X[:, adata.var_names.str.upper().isin(gene_df.index)].todense()),
             index=adata.obs_names,
             columns=common_genes,
         ).T
     else:
-        expression = adata.X[:, adata.var_names.isin(gene_df.index)]
+        expression = adata.X[:, adata.var_names.str.upper().isin(gene_df.index)]
         expression = (
             np.squeeze(np.asarray(expression.todense())) if issparse(expression) else expression
         )
@@ -269,7 +270,7 @@ def annotate_with_k27(
                 ids[adata.obs[cluster] == cell_type], N, replace=False
             )
         idxs.extend(idx)
-
+    
     X = gene_df.loc[common_genes]
     model = getattr(sys.modules[__name__], model)()
     kf = KFold(n_splits=5)
@@ -353,26 +354,29 @@ def relevant_cell_types(
         Cell types ordered by the mean absolute coefficient over clusters in
         descending order.
     """
-    logger.info("selecting reference cell types")
-    common_genes = list(gene_df.index[gene_df.index.isin(adata.var_names)])
-
+    gene_df.index = gene_df.index.str.upper()
+    gene_df = gene_df[gene_df.max(1) > 0]
+    logger.info("Selecting reference cell types")
+    common_genes = list(gene_df.index[gene_df.index.isin(adata.var_names.str.upper())])
     expression = (
         np.squeeze(np.asarray(adata.X.todense())) if issparse(adata.X) else adata.X
     )
 
     expression = pd.DataFrame(
-        expression, index=adata.obs_names, columns=adata.var_names
+        expression, index=adata.obs_names, columns=adata.var_names.str.upper()
     ).T
     expression = expression.loc[common_genes]
     expression.columns = adata.obs[cluster]
     expression = expression.groupby(expression.columns, axis=1).mean()
 
     var_genes = (
-        adata.var.loc[common_genes, "dispersions_norm"]
+        adata.var.loc[adata.var_names.str.upper().isin(common_genes), "dispersions_norm"]
         .sort_values()
         .tail(n_top_genes)
         .index
+        .str.upper()
     )
+    logger.info(f"Using {len(var_genes)} hypervariable common genes")
     expression = expression.loc[var_genes]
     X = gene_df.loc[var_genes]
     g = LassoCV(cv=cv, selection="random")
@@ -558,11 +562,9 @@ def infer_motifs(
         )
 
     logger.info("Linking variable genes to differential enhancers.")
-    gene_map_file = config.get("gene_mapping")
-    if gene_map_file is not None:
-        gene_map_file = os.path.join(data_dir, gene_map_file)
+    gene_map_file = data.gene_mapping
 
-    link_file = os.path.join(data_dir, config.get("link_file"))
+    link_file = data.link_file
     link = pd.read_feather(link_file)
     if use_name:
         ens2name = pd.read_csv(
@@ -571,7 +573,8 @@ def infer_motifs(
         link = link.join(ens2name, on="gene").dropna()
         link = link.set_index("name")
 
-    enh_genes = adata.var_names[adata.var_names.isin(link.index)]
+    link.index = link.index.str.upper()
+    enh_genes = adata.var_names[adata.var_names.str.upper().isin(link.index)].str.upper()
     var_enhancers = change_region_size(link.loc[enh_genes, "loc"]).unique()
 
     enhancer_df = data.load_reference_data(reftype="enhancer")
@@ -608,10 +611,11 @@ def infer_motifs(
             motif_act.columns = motif_act.columns.str.replace(r"z-score\s+", "")
             pfm = pfmfile_location(os.path.join(tmpdir, "nonredundant.motifs.pfm"))
     else:
+        logger.info(f"Activity based on genome {data.genome}")
         motif_act = moap(
             fname,
             scoring="score",
-            genome="hg38",
+            genome=data.genome,
             method="bayesianridge",
             pfmfile=pfm,
             ncpus=12,
