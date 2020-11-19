@@ -67,7 +67,15 @@ class ScepiaDataset:
         source = self.config.get("source", None)
         if source:
             self.source = ScepiaDataset(source)
-
+        
+        try:
+            Genome(self.genome)
+        except FileNotFoundError:
+            logger.error(f"Genome {self.genome} is needed for this dataset.")
+            logger.error("Please install it with genomepy.")
+            logger.error(f"Command-line: genomepy install {self.genome}")
+            logger.error(f'Python: import genomepy; genomepy.install_genome("{self.genome}")') 
+        
     @property
     def genome(self):
         return self.config.get("genome", "hg38")
