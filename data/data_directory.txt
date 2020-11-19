@@ -1,3 +1,7 @@
 name	version	url
 ENCODE	0.1	http://mbdata.science.ru.nl/share/heeringen/area27/area27.ENCODE.data.tgz
 BLUEPRINT	1.0	http://mbdata.science.ru.nl/share/heeringen/area27/scepia.BLUEPRINT.data.v1.0.tgz
+Domcke.ATAC.fetal.human	0.1.0	https://sandbox.zenodo.org/record/698919/files/Domcke.ATAC.fetal.human.tgz
+Cusanovich.ATAC.adult.mouse	0.1.0	https://sandbox.zenodo.org/record/698923/files/Cusanovich.ATAC.adult.mouse.tgz
+ENCODE.H3K27ac.mouse	0.1.0	https://sandbox.zenodo.org/record/698927/files/ENCODE.H3K27ac.mouse.tgz
+ENCODE.H3K27ac.human	0.1.0	https://sandbox.zenodo.org/record/698929/files/ENCODE.H3K27ac.human.tgz
