@@ -19,8 +19,6 @@ from pybedtools import BedTool
 from genomepy import Genome
 from loguru import logger
 
-from scepia.data import ScepiaDataset
-
 # TODO: Remove with new pybedtools release
 import warnings
 
