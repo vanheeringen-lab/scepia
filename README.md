@@ -4,12 +4,29 @@
 
 SCEPIA predicts transcription factor motif activity from single cell RNA-seq data. It uses computationally inferred epigenomes of single cells to identify transcription factors that determine cellular states. The regulatory inference is based on a two-step process:
 
-1) Single cells are matched to a combination of (bulk) reference H3K27ac profiles.
-2) Using the H3K27ac signal in enhancers associated with hypervariable genes the TF motif activity is inferred.
+1) Single cells are matched to a combination of (bulk) reference H3K27ac ChIP-seq or ATAC-seq profiles.
+2) Using the H3K27ac ChIP-seq or ATAC-seq signal in enhancers associated with hypervariable genes the TF motif activity is inferred.
 
-The current reference is based on H3K27ac profiles from ENCODE.
+Currently five different references are available, three for human and two for mouse. Different
+data sets may give different results, based on a) the type of data (H3K27ac
+ChIP-seq or ATAC-seq) and b) the different cell types being represented. While
+SCEPIA does not require exact matching cell types to give good results, it does
+work best when relatively similar cell types are in the reference. 
 
-So sorry, but only human is supported for now. However, if you have mouse data you *can* try it. Make sure you use upper-case gene names as identifier, and `scepia` will run fine. In our (very limited) experience this *can* yield good results, but there are a lot of assumptions on conservation of regulatory interactions. 
+The following references can be used:
+
+* `ENCODE.H3K27ac.human` - All H3K27ac experiments from ENCODE. Includes cell
+  lines, tissues
+* `BLUEPRINT.H3K27ac.human` - All H3K27ac cell types from BLUEPRINT (mostly
+  hematopoietic cell types)
+* `Domcke.ATAC.fetal.human` - Fetal single cell-based ATAC-seq clusters from
+  15 different organs (Domcke et al 2020)[http://dx.doi.org/10.1126/science.aba7612].
+* `Cusanovich.ATAC.mouse` - ATAC-seq data of single cell-based clusters from 13
+  adult mouse tissues (Cusanovich et al,
+2018)[http://dx.doi.org/doi:10.1016/j.cell.2018.06.052].
+* `ENCODE.H3K27ac.mouse` - All H3K27ac experiments from mouse ENCODE.
+
+So sorry, but only human and mouse are supported for now. However, if you have data from other species you can try it if gene names tend to match. Make sure you usegene names as identifiers, and `scepia` will run fine. In our (very limited) experience this *can* yield good results, but there are a lot of assumptions on conservation of regulatory interactions. If you have a large collection of ATAC-seq or ChIP-seq reference experiments available you can also create your own reference with `ScepiaDataset.create()`. This is not well-documented at the moment, let us know if you need help to do so.
 
 ## Requirements and installation
 
