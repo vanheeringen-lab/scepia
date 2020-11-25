@@ -34,6 +34,7 @@ def _create_gene_table(
     logger.info("Calculating gene-based values")
     genes = None
     for exp in tqdm(df.columns):
+        logger.info(exp)
         tmp = link_it_up(
             df[exp].to_frame("signal"),
             meanstd_file=meanstd_file,
