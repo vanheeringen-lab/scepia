@@ -891,13 +891,14 @@ def full_analysis(
     ftype: Optional[str] = "auto",
     transpose: Optional[bool] = False,
     cluster: Optional[str] = None,
-    n_top_genes: Optional[int] = 1000,
+    dataset: Optional[str] = "ENCODE.H3K27ac.human",
+    n_top_genes: Optional[int] = 2000,
     pfmfile: Optional[str] = None,
     min_annotated: Optional[int] = 50,
     num_enhancers: Optional[int] = 10000,
 ):
     """
-    Run full SCEPIA analysis on h5ad infile.
+    Run full SCEPIA analysis on a scanpy-compatible input file.
     """
     # Create output directory
     os.makedirs(outdir, exist_ok=True)
@@ -945,7 +946,7 @@ def full_analysis(
 
     adata = infer_motifs(
         adata,
-        dataset="ENCODE",
+        dataset=dataset,
         cluster=cluster,
         n_top_genes=n_top_genes,
         pfm=pfmfile,

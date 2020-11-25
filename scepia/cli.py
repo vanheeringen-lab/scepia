@@ -49,10 +49,16 @@ def area27(bamfile, outfile, window=2000, nthreads=4):
     "-c", "--cluster", help="cluster name (default checks for 'louvain' or 'leiden')."
 )
 @click.option(
+    "-d",
+    "--dataset",
+    default="ENCODE.H3K27ac.human",
+    help="Reference dataset (ENCODE.H3K27ac.human).",
+)
+@click.option(
     "-n",
     "--n_top_genes",
-    default=1000,
-    help="Maximum number of variable genes that is used (1000).",
+    default=2000,
+    help="Maximum number of variable genes that is used (2000).",
 )
 @click.option(
     "-p", "--pfmfile", help="Name of motif PFM file or GimmeMotifs database name."
@@ -74,6 +80,7 @@ def infer_motifs(
     outdir,
     transpose,
     cluster,
+    dataset,
     n_top_genes,
     pfmfile,
     min_annotated,
@@ -87,6 +94,7 @@ def infer_motifs(
         outdir,
         transpose=transpose,
         cluster=cluster,
+        dataset=dataset,
         n_top_genes=n_top_genes,
         pfmfile=pfmfile,
         min_annotated=min_annotated,
