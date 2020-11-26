@@ -25,7 +25,7 @@ The following references can be used:
   adult mouse tissues ([Cusanovich et al, 2018](http://dx.doi.org/doi:10.1016/j.cell.2018.06.052)).
 * `ENCODE.H3K27ac.mouse` - All H3K27ac experiments from mouse ENCODE.
 
-So sorry, but only human and mouse are supported for now. However, if you have data from other species you can try it if gene names tend to match. Make sure you usegene names as identifiers, and `scepia` will run fine. In our (very limited) experience this *can* yield good results, but there are a lot of assumptions on conservation of regulatory interactions. If you have a large collection of ATAC-seq or ChIP-seq reference experiments available you can also create your own reference with `ScepiaDataset.create()`. This is not well-documented at the moment, let us know if you need help to do so.
+So sorry, but only human and mouse are supported for now. However, if you have data from other species you can try it if gene names tend to match. Make sure you use gene names as identifiers, and `scepia` will run fine. In our (very limited) experience this *can* yield good results, but there are a lot of assumptions on conservation of regulatory interactions. If you have a large collection of ATAC-seq or ChIP-seq reference experiments available you can also create your own reference with `ScepiaDataset.create()`. This is not well-documented at the moment, let us know if you need help to do so.
 
 ## Requirements and installation
 
@@ -42,15 +42,11 @@ $ conda config --add channels conda-forge
 Now you can create an environment for scepia:
 
 ``` 
-conda create -n scepia adjusttext biofluff gimmemotifs>=0.15.1 scanpy leidenalg louvain loguru geosketch
+conda create -n scepia 'scepia>=0.5.0'
+
 # Note: if you want to use scepia in a Jupyter notebook, you also have to install the following packages: `ipywidgets nb_conda`.
+
 conda activate scepia
-```
-
-Install the latest release of scepia:
-
-```
-pip install git+https://github.com/vanheeringen-lab/scepia.git@0.3.5
 ```
 
 ## Usage
@@ -88,7 +84,7 @@ from scepia.sc import infer_motifs
 
 # load and preprocess single-cell data using scanpy
 
-adata = infer_motifs(adata, dataset="ENCODE")
+adata = infer_motifs(adata, dataset="ENCODE.H3K27ac.human")
 ```
 
 The resulting `AnnData` object can be saved with the `.write()` method to a `h5ad` file. However, due to some difficulties with storing the motif annotation in the correct format, the file cannot be loaded with the `scanpy` load() method. Instead, use the `read()` method from the scepia package:
