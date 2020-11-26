@@ -274,7 +274,9 @@ class ScepiaDataset:
         chroms = set([f.chrom for f in BedTool(enhancer_file)])
         b = b.filter(lambda x: x.chrom in chroms)
 
-        b = b.flank(g=g.sizes_file, l=1, r=0).sort().merge(d=1000, c=4, o="distinct")  # noqa: E741
+        b = (
+            b.flank(g=g.sizes_file, l=1, r=0).sort().merge(d=1000, c=4, o="distinct")
+        )  # noqa: E741
         b.saveas(str(gene_file))
 
         logger.info("processing data files")
