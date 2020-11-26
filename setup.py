@@ -43,7 +43,7 @@ setup(
         "adjustText",
         "biofluff",
         "geosketch",
-        "gimmemotifs",
+        "gimmemotifs >=0.15.2",
         "leidenalg",
         "loguru",
         "matplotlib",
