@@ -527,7 +527,6 @@ def infer_motifs(
     add_activity(adata)
 
     logger.info("Done with motif inference.")
-    return MotifAnnData(adata)
 
 
 def correlate_tf_motifs(
@@ -821,7 +820,7 @@ def full_analysis(
         else:
             cluster = "louvain"
 
-    adata = infer_motifs(
+    infer_motifs(
         adata,
         dataset=dataset,
         cluster=cluster,
