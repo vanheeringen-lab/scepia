@@ -20,10 +20,9 @@ The following references can be used:
 * `BLUEPRINT.H3K27ac.human` - All H3K27ac cell types from BLUEPRINT (mostly
   hematopoietic cell types)
 * `Domcke.ATAC.fetal.human` - Fetal single cell-based ATAC-seq clusters from
-  15 different organs (Domcke et al 2020)[http://dx.doi.org/10.1126/science.aba7612].
+  15 different organs ([Domcke et al 2020](http://dx.doi.org/10.1126/science.aba7612)).
 * `Cusanovich.ATAC.mouse` - ATAC-seq data of single cell-based clusters from 13
-  adult mouse tissues (Cusanovich et al,
-2018)[http://dx.doi.org/doi:10.1016/j.cell.2018.06.052].
+  adult mouse tissues ([Cusanovich et al, 2018](http://dx.doi.org/doi:10.1016/j.cell.2018.06.052)).
 * `ENCODE.H3K27ac.mouse` - All H3K27ac experiments from mouse ENCODE.
 
 So sorry, but only human and mouse are supported for now. However, if you have data from other species you can try it if gene names tend to match. Make sure you usegene names as identifiers, and `scepia` will run fine. In our (very limited) experience this *can* yield good results, but there are a lot of assumptions on conservation of regulatory interactions. If you have a large collection of ATAC-seq or ChIP-seq reference experiments available you can also create your own reference with `ScepiaDataset.create()`. This is not well-documented at the moment, let us know if you need help to do so.
