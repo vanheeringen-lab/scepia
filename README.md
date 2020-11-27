@@ -84,18 +84,10 @@ from scepia.sc import infer_motifs
 
 # load and preprocess single-cell data using scanpy
 
-adata = infer_motifs(adata, dataset="ENCODE.H3K27ac.human")
+infer_motifs(adata, dataset="ENCODE.H3K27ac.human")
 ```
 
-The resulting `AnnData` object can be saved with the `.write()` method to a `h5ad` file. However, due to some difficulties with storing the motif annotation in the correct format, the file cannot be loaded with the `scanpy` load() method. Instead, use the `read()` method from the scepia package:
-
-```
-from scepia.sc import read
-adata = read("my_saved_data.h5ad")
-```
-
-The resulting object can now be treated as a normal `AnnData` object.
-
+The resulting `AnnData` object can be saved and loaded as normal.
 
 ### Determine enhancer-based regulatory potential
 
