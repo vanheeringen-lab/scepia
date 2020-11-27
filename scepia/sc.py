@@ -343,7 +343,7 @@ def annotate_cells(
     if "scepia" not in adata.uns:
         adata.uns["scepia"] = {"version": __version__}
 
-    adata.uns["scepia"]["cell_types"] = cell_types
+    adata.uns["scepia"]["cell_types"] = list(cell_types)
 
     logger.info("Annotating cells.")
     annotation_result, df_coef = annotate_with_k27(
