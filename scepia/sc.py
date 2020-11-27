@@ -18,7 +18,6 @@ from loguru import logger
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from sklearn.linear_model import LassoCV
 from sklearn.linear_model import (  # noqa: F401
     BayesianRidge,
     LogisticRegression,
@@ -32,7 +31,6 @@ from scipy.sparse import issparse
 from scipy.stats import percentileofscore, combine_pvalues
 from statsmodels.stats.multitest import multipletests
 from tqdm.auto import tqdm
-from yaml import load
 import geosketch
 
 from gimmemotifs.moap import moap
@@ -41,130 +39,10 @@ from gimmemotifs.motif import read_motifs
 from gimmemotifs.utils import pfmfile_location
 from scepia import __version__
 from scepia.plot import plot
-from scepia.util import fast_corr, locate_data
+from scepia.util import fast_corr
+from scepia.data import ScepiaDataset
 
 CACHE_DIR = os.path.join(user_cache_dir("scepia"))
-
-
-class MotifAnnData(AnnData):
-    """Extended AnnData class.
-
-    Add the functionality to correctly save and load an AnnData object with
-    motif annotation results.
-    """
-
-    df_keys = ["motif_activity", "correlation"]
-
-    def __init__(self, adata):
-        super().__init__(adata)
-
-    def _remove_additional_data(self) -> None:
-        # Motif columns need to be removed, as the hdf5 backend cannot
-        # store the data otherwise (header too long).
-        self.obs = self.obs.drop(
-            columns=self.uns["scepia"]
-            .get("motif_activity", pd.DataFrame())
-            .columns.intersection(self.obs.columns)
-        )
-        # DataFrames are not supported in the h5ad format. By converting them
-        # dictionaries the can be restored to DataFrame format after loading.
-        for k in self.df_keys:
-            if k not in self.uns["scepia"]:
-                continue
-            logger.info(f"updating {k}")
-            self.uns["scepia"][f"{k}_columns"] = self.uns["scepia"][k].columns.tolist()
-            self.uns["scepia"][f"{k}_index"] = self.uns["scepia"][k].index.tolist()
-            self.uns["scepia"][k] = self.uns["scepia"][k].to_numpy()
-
-    def _restore_additional_data(self) -> None:
-        # In this case it works for an AnnData object that contains no
-        # additional motif information
-        if "scepia" not in self.uns:
-            return
-
-        # Restore all DataFrames in uns
-        logger.info("Restoring DataFrames")
-        for k in self.df_keys:
-            if k not in self.uns["scepia"]:
-                continue
-            self.uns["scepia"][k] = pd.DataFrame(
-                self.uns["scepia"][k],
-                index=self.uns["scepia"][f"{k}_index"],
-                columns=self.uns["scepia"][f"{k}_columns"],
-            )
-
-        for k in self.df_keys + ["cell_types"]:
-            if k not in self.uns["scepia"]:
-                logger.warning("scepia information is not complete")
-                return
-
-        for k in self.df_keys:
-            for col in self.uns["scepia"][k].columns:
-                try:
-                    self.uns["scepia"][k][col] = self.uns["scepia"][k][col].astype(
-                        float
-                    )
-                except Exception:
-                    pass
-
-        # make sure index has the correct name
-        self.uns["scepia"]["correlation"].index.rename("factor", inplace=True)
-
-        # Make sure the cell types are in the correct order
-        logger.info("Sorting cell types")
-        self.uns["scepia"]["motif_activity"] = self.uns["scepia"]["motif_activity"][
-            self.uns["scepia"]["cell_types"]
-        ]
-
-        if "X_cell_types" not in self.obsm:
-            logger.warning("scepia information is not complete")
-
-        #  The cell type-specific motif activity needs to be recreated.
-        logger.info("Recreate motif activity")
-        cell_motif_activity = pd.DataFrame(
-            self.uns["scepia"]["motif_activity"] @ self.obsm["X_cell_types"].T
-        ).T
-        logger.info("Drop columns")
-        cell_motif_activity.index = self.obs_names
-        self.obs = self.obs.drop(
-            columns=cell_motif_activity.columns.intersection(self.obs.columns)
-        )
-        logger.info("Add motif activity to obs")
-        self.obs = self.obs.join(cell_motif_activity)
-
-    def write(self, *args, **kwargs) -> None:
-        """Write a MotifAnnData object.
-
-        All DataFrames in uns are converted to dictionaries and motif columns
-        are removed from obs.
-        """
-        logger.info("writing scepia-compatible file")
-        self._remove_additional_data()
-        super().write(*args, **kwargs)
-        # If we don't restore it, the motif annotation will be useless
-        # after saving a MotifAnnData object.
-        self._restore_additional_data()
-
-
-def read(filename: str) -> AnnData:
-    """Read a MotifAnnData object from a h5ad file.
-
-    Parameters
-    ----------
-    filename : `str`
-        Name of a h5ad file.
-
-    Return
-    ------
-    MotifAnnData object.
-    """
-    logger.info("reading .h5ad file")
-    adata = MotifAnnData(sc.read(filename))
-    logger.info("done")
-    logger.info("converting and populating scepia motif properties")
-    adata._restore_additional_data()
-    logger.info("done")
-    return adata
 
 
 def motif_mapping(
@@ -215,38 +93,6 @@ def motif_mapping(
     return m2f
 
 
-def read_enhancer_data(
-    fname: str,
-    anno_fname: Optional[str] = None,
-    anno_from: Optional[str] = None,
-    anno_to: Optional[str] = None,
-    scale: Optional[bool] = False,
-) -> pd.DataFrame:
-    if fname.endswith(".txt"):
-        df = pd.read_csv(fname, sep="\t", comment="#", index_col=0)
-    elif fname.endswith(".csv"):
-        df = pd.read_csv(fname, comment="#", index_col=0)
-    elif fname.endswith("feather"):
-        df = pd.read_feather(fname)
-        df = df.set_index(df.columns[0])
-
-    # Remove mitochondrial regions
-    df = df.loc[~df.index.str.contains("chrM")]
-
-    # Map column names using annotation file
-    if anno_fname:
-        md = pd.read_csv(anno_fname, sep="\t", comment="#")
-        if anno_from is None:
-            anno_from = md.columns[0]
-        if anno_to is None:
-            anno_to = md.columns[1]
-        md = md.set_index(anno_from)[anno_to]
-        df = df.rename(columns=md)
-        # Merge identical columns
-        df = df.groupby(df.columns, axis=1).mean()
-    return df
-
-
 def annotate_with_k27(
     adata: AnnData,
     gene_df: pd.DataFrame,
@@ -260,25 +106,30 @@ def annotate_with_k27(
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Annotate single cell data.
     """
+    gene_df.index = gene_df.index.str.upper()
     # Only use genes that overlap
-    common_genes = adata.var_names.intersection(gene_df.index).unique()
+    common_genes = adata.var_names.str.upper().intersection(gene_df.index).unique()
     # print(common_genes)
     # Create expression DataFrame based on common genes
     if use_raw:
         expression = pd.DataFrame(
-            np.log1p(adata.raw.X[:, adata.var_names.isin(gene_df.index)].todense()),
+            np.log1p(
+                adata.raw.X[
+                    :, adata.var_names.str.upper().isin(gene_df.index)
+                ].todense()
+            ),
             index=adata.obs_names,
             columns=common_genes,
         ).T
     else:
-        expression = adata.X[:, adata.var_names.isin(gene_df.index)]
+        expression = adata.X[:, adata.var_names.str.upper().isin(gene_df.index)]
         expression = (
-            np.squeeze(np.asarray(expression.todense())) if issparse(expression) else expression
+            np.squeeze(np.asarray(expression.todense()))
+            if issparse(expression)
+            else expression
         )
         expression = pd.DataFrame(
-            expression,
-            index=adata.obs_names,
-            columns=common_genes,
+            expression, index=adata.obs_names, columns=common_genes,
         ).T
 
     if center_expression:
@@ -382,40 +233,44 @@ def relevant_cell_types(
         Cell types ordered by the mean absolute coefficient over clusters in
         descending order.
     """
-    logger.info("selecting reference cell types")
-    common_genes = list(gene_df.index[gene_df.index.isin(adata.var_names)])
-
+    gene_df.index = gene_df.index.str.upper()
+    gene_df = gene_df[gene_df.max(1) > 0]
+    logger.info("Selecting reference cell types")
+    common_genes = list(gene_df.index[gene_df.index.isin(adata.var_names.str.upper())])
     expression = (
         np.squeeze(np.asarray(adata.X.todense())) if issparse(adata.X) else adata.X
     )
 
     expression = pd.DataFrame(
-        expression, index=adata.obs_names, columns=adata.var_names
+        expression, index=adata.obs_names, columns=adata.var_names.str.upper()
     ).T
     expression = expression.loc[common_genes]
     expression.columns = adata.obs[cluster]
     expression = expression.groupby(expression.columns, axis=1).mean()
 
     var_genes = (
-        adata.var.loc[common_genes, "dispersions_norm"]
+        adata.var.loc[
+            adata.var_names.str.upper().isin(common_genes), "dispersions_norm"
+        ]
         .sort_values()
         .tail(n_top_genes)
-        .index
+        .index.str.upper()
     )
+    logger.info(f"Using {len(var_genes)} hypervariable common genes")
     expression = expression.loc[var_genes]
     X = gene_df.loc[var_genes]
     g = LassoCV(cv=cv, selection="random")
     cell_types = pd.DataFrame(index=X.columns)
-    
+
     for col in expression.columns:
         g.fit(X, expression[col])
         coefs = pd.DataFrame(g.coef_, index=X.columns)
         cell_types[col] = coefs
-    
+
     cell_types = cell_types.abs().sum(1).sort_values().tail(max_cell_types)
     cell_types = cell_types[cell_types > 0].index
     top = cell_types[-5:]
-    
+
     logger.info("{} out of {} selected".format(len(cell_types), gene_df.shape[1]))
     logger.info(f"Top {len(top)}:")
     for cell_type in top:
@@ -439,32 +294,6 @@ def validate_adata(adata: AnnData) -> None:
         "louvain" not in adata.obs and "leiden" not in adata.obs
     ):
         raise ValueError("Please run louvain or leiden clustering first.")
-
-
-def load_reference_data(
-    config: dict, data_dir: str, reftype: Optional[str] = "gene"
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    logger.info("Loading reference data.")
-    fname_enhancers = os.path.join(data_dir, config["enhancers"])
-    fname_genes = os.path.join(data_dir, config["genes"])
-    anno_fname = config.get("anno_file")
-    if anno_fname is not None:
-        anno_fname = os.path.join(data_dir, anno_fname)
-    anno_to = config.get("anno_to")
-    anno_from = config.get("anno_from")
-
-    if reftype == "enhancer":
-        # H3K27ac signal in enhancers
-        df = read_enhancer_data(fname_enhancers, anno_fname=anno_fname, anno_to=anno_to)
-    elif reftype == "gene":
-        # H3K27ac signal summarized per gene
-        df = read_enhancer_data(
-            fname_genes, anno_fname=anno_fname, anno_to=anno_to, anno_from=anno_from
-        )
-    else:
-        raise ValueError("unknown reference data type")
-
-    return df
 
 
 def change_region_size(series: pd.Series, size: Optional[int] = 200) -> pd.Series:
@@ -496,16 +325,16 @@ def annotate_cells(
     # Determine relevant reference cell types.
     # All other cell types will not be used for motif activity and
     # cell type annotation.
-    data_dir = locate_data(dataset)
-
-    with open(os.path.join(data_dir, "info.yaml")) as f:
-        config = load(f)
-
-    gene_df = load_reference_data(config, data_dir, reftype="gene")
+    data = ScepiaDataset(dataset)
+    gene_df = data.load_reference_data(reftype="gene")
 
     if select:
         cell_types = relevant_cell_types(
-            adata, gene_df, cluster=cluster, n_top_genes=n_top_genes, max_cell_types=max_cell_types,
+            adata,
+            gene_df,
+            cluster=cluster,
+            n_top_genes=n_top_genes,
+            max_cell_types=max_cell_types,
         )
     else:
         logger.info("Selecting all reference cell types.")
@@ -514,7 +343,7 @@ def annotate_cells(
     if "scepia" not in adata.uns:
         adata.uns["scepia"] = {"version": __version__}
 
-    adata.uns["scepia"]["cell_types"] = cell_types
+    adata.uns["scepia"]["cell_types"] = list(cell_types)
 
     logger.info("Annotating cells.")
     annotation_result, df_coef = annotate_with_k27(
@@ -600,11 +429,8 @@ def infer_motifs(
 
     validate_adata(adata)
 
-    data_dir = locate_data(dataset)
-    with open(os.path.join(data_dir, "info.yaml")) as f:
-        config = load(f)
+    data = ScepiaDataset(dataset)
 
-    logger.debug(config)
     if "scepia" not in adata.uns:
         adata.uns["scepia"] = {"version": __version__}
 
@@ -620,11 +446,9 @@ def infer_motifs(
         )
 
     logger.info("Linking variable genes to differential enhancers.")
-    gene_map_file = config.get("gene_mapping")
-    if gene_map_file is not None:
-        gene_map_file = os.path.join(data_dir, gene_map_file)
+    gene_map_file = data.gene_mapping
 
-    link_file = os.path.join(data_dir, config.get("link_file"))
+    link_file = data.link_file
     link = pd.read_feather(link_file)
     if use_name:
         ens2name = pd.read_csv(
@@ -633,10 +457,13 @@ def infer_motifs(
         link = link.join(ens2name, on="gene").dropna()
         link = link.set_index("name")
 
-    enh_genes = adata.var_names[adata.var_names.isin(link.index)]
+    link.index = link.index.str.upper()
+    enh_genes = adata.var_names[
+        adata.var_names.str.upper().isin(link.index)
+    ].str.upper()
     var_enhancers = change_region_size(link.loc[enh_genes, "loc"]).unique()
 
-    enhancer_df = load_reference_data(config, data_dir, reftype="enhancer")
+    enhancer_df = data.load_reference_data(reftype="enhancer")
     enhancer_df.index = change_region_size(enhancer_df.index)
     enhancer_df = enhancer_df.loc[var_enhancers, adata.uns["scepia"]["cell_types"]]
     enhancer_df = enhancer_df.groupby(enhancer_df.columns, axis=1).mean()
@@ -658,7 +485,7 @@ def infer_motifs(
     if maelstrom:
         with TemporaryDirectory() as tmpdir:
             run_maelstrom(
-                fname, "hg38", tmpdir, center=False, filter_redundant=True,
+                fname, data.genome, tmpdir, center=False, filter_redundant=True,
             )
 
             motif_act = pd.read_csv(
@@ -670,10 +497,11 @@ def infer_motifs(
             motif_act.columns = motif_act.columns.str.replace(r"z-score\s+", "")
             pfm = pfmfile_location(os.path.join(tmpdir, "nonredundant.motifs.pfm"))
     else:
+        logger.info(f"Activity based on genome {data.genome}")
         motif_act = moap(
             fname,
             scoring="score",
-            genome="hg38",
+            genome=data.genome,
             method="bayesianridge",
             pfmfile=pfm,
             ncpus=12,
@@ -699,7 +527,6 @@ def infer_motifs(
     add_activity(adata)
 
     logger.info("Done with motif inference.")
-    return MotifAnnData(adata)
 
 
 def correlate_tf_motifs(
@@ -745,11 +572,11 @@ def correlate_tf_motifs(
         my_adata = adata.copy()
         my_adata = my_adata[idx]
 
-    detected = (my_adata.raw.var_names.isin(unique_factors)) & (
+    detected = (my_adata.raw.var_names.str.upper().isin(unique_factors)) & (
         (my_adata.raw.X > 0).sum(0) > 3
     )
     detected = np.squeeze(np.asarray(detected))
-    unique_factors = my_adata.raw.var_names[detected]
+    unique_factors = my_adata.raw.var_names[detected].str.upper()
 
     # Get the expression for all TFs
     expression = (
@@ -940,13 +767,14 @@ def full_analysis(
     ftype: Optional[str] = "auto",
     transpose: Optional[bool] = False,
     cluster: Optional[str] = None,
-    n_top_genes: Optional[int] = 1000,
+    dataset: Optional[str] = "ENCODE.H3K27ac.human",
+    n_top_genes: Optional[int] = 2000,
     pfmfile: Optional[str] = None,
     min_annotated: Optional[int] = 50,
     num_enhancers: Optional[int] = 10000,
 ):
     """
-    Run full SCEPIA analysis on h5ad infile.
+    Run full SCEPIA analysis on a scanpy-compatible input file.
     """
     # Create output directory
     os.makedirs(outdir, exist_ok=True)
@@ -992,9 +820,9 @@ def full_analysis(
         else:
             cluster = "louvain"
 
-    adata = infer_motifs(
+    infer_motifs(
         adata,
-        dataset="ENCODE",
+        dataset=dataset,
         cluster=cluster,
         n_top_genes=n_top_genes,
         pfm=pfmfile,

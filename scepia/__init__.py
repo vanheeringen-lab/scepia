@@ -9,7 +9,6 @@ import re
 import sys
 from tempfile import NamedTemporaryFile
 from multiprocessing import Pool
-from pkg_resources import resource_filename
 from typing import Optional, List
 
 import xdg
@@ -20,12 +19,18 @@ from pybedtools import BedTool
 from genomepy import Genome
 from loguru import logger
 
+# TODO: Remove with new pybedtools release
+import warnings
+
+warnings.filterwarnings("ignore", message="line buffering")
+
 logger.remove()
 logger.add(
     sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss} - {level} - {message}", level="INFO"
 )
 
 CACHE_DIR = os.path.join(xdg.XDG_CACHE_HOME, "scepia")
+
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR)
 
@@ -43,6 +48,7 @@ def splitextgz(fname: str) -> str:
     str
         Filename without .gz extension.
     """
+    fname = str(fname)
     if fname.endswith(".gz"):
         fname = os.path.splitext(fname)[0]
     return os.path.splitext(os.path.basename(fname))[0]
@@ -164,6 +170,7 @@ def weigh_distance(dist: float) -> float:
 def create_link_file(
     meanstd_file: str, genes_file: str, genome: Optional[str] = "hg38"
 ) -> pd.DataFrame:
+    meanstd_file = str(meanstd_file)
     # Read enhancer locations
     if meanstd_file.endswith("feather"):
         tmp = pd.read_feather(meanstd_file)["index"]
@@ -172,7 +179,7 @@ def create_link_file(
     enhancers = BedTool.from_dataframe(tmp.str.split("[-:]", expand=True))
 
     # Calculating overlap with certain distance
-    g = Genome(genome).props["sizes"]["sizes"]
+    g = Genome(genome).sizes_file
     genes = BedTool(genes_file).slop(b=100000, g=g).cut([0, 1, 2, 3])
     overlap = genes.intersect(b=enhancers, wo=True)
     overlap = overlap.to_dataframe().iloc[:, 3:7]
@@ -190,12 +197,15 @@ def create_link_file(
 
 
 def link_it_up(
-    outfile: str,
     signal: pd.DataFrame,
+    outfile: Optional[str] = None,
+    dataset: Optional[str] = "ENCODE",
     meanstd_file: Optional[str] = None,
     genes_file: Optional[str] = None,
     names_file: Optional[str] = None,
-    threshold: Optional[float] = 2.0,
+    threshold: Optional[float] = 1.0,
+    genome: Optional[str] = None,
+    link_file: Optional[str] = None,
 ):
     """Return file with H3K27ac "score" per gene.
 
@@ -214,28 +224,31 @@ def link_it_up(
     names_file : str, optional
         Name of the file linking gene identifiers to gene names.
     threshold : float, optional
-        Only use enhancers with at least a signal above threshold. Default is 2.0.
+        Only use enhancers with at least a signal above threshold. Default is 1.0.
     """
+    if None in [meanstd_file, genes_file, names_file]:
+        data = ScepiaDataset(dataset)
+
     if meanstd_file is None:
-        meanstd_file = resource_filename(__name__, "data/remap.hg38.meanstd.tsv.gz")
+        meanstd_file = str(data.meanstd_file)
     if genes_file is None:
-        genes_file = resource_filename(
-            __name__, "data/gencode.v30.TSS.all_transcripts.merged1kb.bed.gz"
-        )
+        genes_file = str(data.genes_file)
     if names_file is None:
-        names_file = resource_filename(__name__, "data/ens2name.txt")
+        names_file = str(data.genes_mapping)
 
     ens2name = pd.read_csv(names_file, sep="\t", index_col=0, names=["gene", "name"])
 
-    link_file = os.path.join(
-        CACHE_DIR,
-        ".".join((splitextgz(meanstd_file), splitextgz(genes_file), "feather")),
-    )
+    if link_file is None:
+        link_file = os.path.join(
+            CACHE_DIR,
+            ".".join((splitextgz(meanstd_file), splitextgz(genes_file), "feather")),
+        )
 
     if not os.path.exists(link_file):
-        genome = re.sub(
-            r"[^\.]+\.(.*)\.meanstd.*", "\\1", os.path.basename(meanstd_file)
-        )
+        if genome is None:
+            genome = re.sub(
+                r"[^\.]+\.(.*)\.meanstd.*", "\\1", os.path.basename(meanstd_file)
+            )
         logger.info("Creating link file with genome {}\n".format(genome))
         link = create_link_file(meanstd_file, genes_file, genome=genome)
         logger.info(f"Saving to {CACHE_DIR}\n")
@@ -253,13 +266,12 @@ def link_it_up(
         names=["chrom", "start", "gene", "strand"],
     )
 
-    link = link.join(
-        signal[signal["signal"] >= threshold][["signal"]], on="loc"
-    ).dropna()
+    link = link.join(signal[signal["signal"] >= threshold][["signal"]], on="loc")
     link = link.dropna()
+    link = link.join(genes, on="gene")
 
     # Split multiple genes
-    link["gene"] = link["gene"].str.split(",")
+    link["gene"] = link["gene"].str.split(",").values
     lst_col = "gene"
     link = pd.DataFrame(
         {
@@ -267,7 +279,6 @@ def link_it_up(
             for col in link.columns.drop(lst_col)
         }
     ).assign(**{lst_col: np.concatenate(link[lst_col].values)})[link.columns]
-    link = link.join(genes, on="gene")
 
     # Distance weight
     link["dist"] = link["start"] - link["pos"]
@@ -275,21 +286,27 @@ def link_it_up(
 
     link["contrib"] = link["dist_weight"] * link["signal"]
     link = link.sort_values("contrib", ascending=False)[["gene", "loc", "contrib"]]
+    link = link.join(ens2name, on="gene").dropna().set_index("name")
     link = (
-        link.groupby(["gene", "loc"])
+        link.groupby(["name", "loc"])
         .first()
         .reset_index()
-        .groupby("gene")
+        .groupby("name")
         .sum()[["contrib"]]
+        .dropna()
     )
-    link = link.join(ens2name).dropna().set_index("name")
-    logger.info(f"Writing output file {outfile}\n")
-    link.to_csv(outfile, sep="\t")
+
+    if outfile:
+        logger.info(f"Writing output file {outfile}\n")
+        link.to_csv(outfile, sep="\t")
+    else:
+        return link
 
 
 def generate_signal(
     bam_file: str,
     window: int,
+    dataset: Optional[str] = "ENCODE",
     meanstd_file: Optional[str] = None,
     target_file: Optional[str] = None,
     nthreads: Optional[int] = 4,
@@ -317,10 +334,13 @@ def generate_signal(
     pandas.DataFrame
         DataFrame containing normalized signal
     """
+    if None in [meanstd_file, target_file]:
+        data = ScepiaDataset(dataset)
+
     if meanstd_file is None:
-        meanstd_file = resource_filename(__name__, "data/remap.hg38.meanstd.tsv.gz")
+        meanstd_file = str(data.meanstd_file)
     if target_file is None:
-        target_file = resource_filename(__name__, "data/remap.hg38.target.npz")
+        target_file = str(data.target_file)
 
     with NamedTemporaryFile(prefix=f"scepia.", suffix=".bed") as f:
         if meanstd_file.endswith("feather"):

@@ -41,9 +41,9 @@ setup(
     ],
     install_requires=[
         "adjustText",
-        "biofluff",
+        "biofluff >=3.0.4",
         "geosketch",
-        "gimmemotifs",
+        "gimmemotifs >=0.15.2",
         "leidenalg",
         "loguru",
         "matplotlib",

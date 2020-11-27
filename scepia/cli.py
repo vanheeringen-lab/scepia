@@ -35,23 +35,30 @@ def area27(bamfile, outfile, window=2000, nthreads=4):
     H3K27ac read counts in 2kb windows centered at enhancer locations.
     """
     signal = generate_signal(bamfile, window=2000, nthreads=nthreads)
-    link_it_up(outfile, signal)
+    link_it_up(signal, outfile=outfile)
 
 
-@click.command("infer_motifs", short_help="Run SCEPIA motif inference on any scanpy-compatible file.")
+@click.command(
+    "infer_motifs",
+    short_help="Run SCEPIA motif inference on any scanpy-compatible file.",
+)
 @click.argument("infile")
 @click.argument("outdir")
-@click.option(
-    "--transpose", is_flag=True, default=False, help="Transpose matrix."
-)
+@click.option("--transpose", is_flag=True, default=False, help="Transpose matrix.")
 @click.option(
     "-c", "--cluster", help="cluster name (default checks for 'louvain' or 'leiden')."
 )
 @click.option(
+    "-d",
+    "--dataset",
+    default="ENCODE.H3K27ac.human",
+    help="Reference dataset (ENCODE.H3K27ac.human).",
+)
+@click.option(
     "-n",
     "--n_top_genes",
-    default=1000,
-    help="Maximum number of variable genes that is used (1000).",
+    default=2000,
+    help="Maximum number of variable genes that is used (2000).",
 )
 @click.option(
     "-p", "--pfmfile", help="Name of motif PFM file or GimmeMotifs database name."
@@ -69,7 +76,15 @@ def area27(bamfile, outfile, window=2000, nthreads=4):
     help="Number of enhancers to use for motif activity (10000).",
 )
 def infer_motifs(
-    infile, outdir, transpose, cluster, n_top_genes, pfmfile, min_annotated, num_enhancers
+    infile,
+    outdir,
+    transpose,
+    cluster,
+    dataset,
+    n_top_genes,
+    pfmfile,
+    min_annotated,
+    num_enhancers,
 ):
     """
     Infer motifs.
@@ -79,6 +94,7 @@ def infer_motifs(
         outdir,
         transpose=transpose,
         cluster=cluster,
+        dataset=dataset,
         n_top_genes=n_top_genes,
         pfmfile=pfmfile,
         min_annotated=min_annotated,
