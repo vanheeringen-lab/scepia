@@ -42,7 +42,7 @@ $ conda config --add channels conda-forge
 Now you can create an environment for scepia:
 
 ``` 
-conda create -n scepia scepia>=0.5.0
+conda create -n scepia "scepia>=0.5.0"
 # Note: if you want to use scepia in a Jupyter notebook, you also have to install the following packages: `ipywidgets nb_conda`.
 conda activate scepia
 ```
