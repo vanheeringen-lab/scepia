@@ -41,7 +41,7 @@ setup(
     ],
     install_requires=[
         "adjustText",
-        "biofluff",
+        "biofluff >=3.0.4",
         "geosketch",
         "gimmemotifs >=0.15.2",
         "leidenalg",
