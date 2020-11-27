@@ -42,14 +42,26 @@ $ conda config --add channels conda-forge
 Now you can create an environment for scepia:
 
 ``` 
-conda create -n scepia 'scepia>=0.5.0'
-
+conda create -n scepia scepia>=0.5.0
 # Note: if you want to use scepia in a Jupyter notebook, you also have to install the following packages: `ipywidgets nb_conda`.
-
 conda activate scepia
 ```
 
 ## Usage
+
+### Before using SCEPIA
+
+You have to install genomes that scepia uses through [genomepy](https://github.com/vanheeringen-lab/genomepy). The genomes that are used include `hg38`, `hg19`, `mm10` and `mm9`, depending on the reference. For example, to install `hg38`:
+
+```
+$ conda activate scepia
+$ genomepy install hg38
+```
+
+You only need to do this once for each genome.
+
+**Note: this is independent of which genome / annotation you used for your
+single cell RNA-seq!**
 
 ### Command line
 
@@ -75,7 +87,7 @@ Make sure of the following:
 * Gene names are used in `adata.var_names`, not Ensembl identifiers or any other gene identifiers.
 * `adata.raw` stores the raw, log-transformed single cell expression data.
 * The main `adata` object is filtered to contain only hypervariable genes.
-* Louvain clustering has been run.
+* Louvain or Leiden clustering has been run.
 
 Once these preprocessing steps are met, `infer_motifs()` can be run to infer the TF motif activity. The first time the reference data will be downloaded, so this will take somewhat longer.
 
