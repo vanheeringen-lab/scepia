@@ -165,7 +165,7 @@ class ScepiaDataset:
             )
 
         if self.source:
-            df = df.join(self.source.load_reference_data(reftype=reftype, scale=False))
+            df = self.source.load_reference_data(reftype=reftype, scale=False).join(df).fillna(0)
 
         df = df[df.max(1) > 0]
         df = df.fillna(0)

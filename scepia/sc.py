@@ -468,14 +468,22 @@ def infer_motifs(
     enhancer_df = enhancer_df.loc[var_enhancers, adata.uns["scepia"]["cell_types"]]
     enhancer_df = enhancer_df.groupby(enhancer_df.columns, axis=1).mean()
     enhancer_df.loc[:, :] = scale(enhancer_df)
-    # Select top most variable enhancers
+
+    main_cell_types = pd.concat(
+        (
+            adata.obs["cluster_annotation"].astype(str),
+            adata.obs["cell_annotation"].astype(str),
+        )
+    )
+    main_cell_types = [x for x in main_cell_types.unique() if x != "other"]
+
+    # Select top most variable enhancers of the most important annotated cell types
     enhancer_df = enhancer_df.loc[
-        enhancer_df.var(1).sort_values().tail(num_enhancers).index
+        enhancer_df[main_cell_types].var(1).sort_values().tail(num_enhancers).index
     ]
     # Center by mean of the most import cell types
     # Here we chose the majority cell type per cluster
-    cluster_cell_types = adata.obs["cluster_annotation"].unique()
-    mean_value = enhancer_df[cluster_cell_types].mean(1)
+    mean_value = enhancer_df[main_cell_types].mean(1)
     enhancer_df = enhancer_df.sub(mean_value, axis=0)
     fname = NamedTemporaryFile(delete=False).name
     enhancer_df.to_csv(fname, sep="\t")
