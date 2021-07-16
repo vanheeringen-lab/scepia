@@ -316,7 +316,7 @@ class ScepiaDataset:
             chroms = set([f.chrom for f in BedTool(enhancer_file)])
         else:
             chroms = df.index.str.replace(":.*$", "").unique()
-            print(chroms)
+
         # Convert gene annotation
         b = BedTool(annotation_file)
         b = b.filter(lambda x: x.chrom in chroms)
