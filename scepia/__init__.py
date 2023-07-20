@@ -12,6 +12,7 @@ from multiprocessing import Pool
 from typing import Optional, List
 
 import xdg
+import qnorm
 import pandas as pd
 import numpy as np
 from fluff.fluffio import load_heatmap_data
@@ -119,33 +120,6 @@ def count_bam(
         total += [x[0] for x in counts[2]]
 
     return total
-
-
-def quantile_norm(x: np.ndarray, target: Optional[np.ndarray] = None) -> np.ndarray:
-    """Quantile normalize a 2D array.
-
-    Parameters
-    ----------
-    x : numpy.array
-        a 2D numpy array
-    target : numpy.array, optional
-        Reference distribution to use for normalization.
-        If not supplied, the mean of x is used.
-
-    Returns
-    -------
-    numpy.array
-        Normalized array.
-    """
-
-    def quantile(x, y):
-        return y[x.argsort().argsort()]
-
-    if target is None:
-        sidx = x.argsort(axis=0)
-        target = x[sidx, np.arange(sidx.shape[1])].mean(1)
-    func = partial(quantile, y=target)
-    return np.apply_along_axis(func, 0, x)
 
 
 def weigh_distance(dist: float) -> float:
@@ -358,7 +332,7 @@ def generate_signal(
     meanstd["signal"] = np.log1p(meanstd["signal"])
     target = np.load(target_file)["target"]
     # np.random.shuffle(target)
-    meanstd["signal"] = quantile_norm(meanstd["signal"].values, target)
+    meanstd["signal"] = qnorm.quantile_normalize(meanstd["signal"].values, target=target)
     meanstd["signal"] = (meanstd["signal"] - meanstd["mean"]) / meanstd["std"]
     return meanstd.set_index("index")[["signal"]]
 
