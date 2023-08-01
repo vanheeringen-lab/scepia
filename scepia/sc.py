@@ -33,7 +33,7 @@ from statsmodels.stats.multitest import multipletests
 from tqdm.auto import tqdm
 import geosketch
 
-from gimmemotifs.moap import moap
+from gimmemotifs.maelstrom.moap import moap
 from gimmemotifs.maelstrom import run_maelstrom
 from gimmemotifs.motif import read_motifs
 from gimmemotifs.utils import pfmfile_location
