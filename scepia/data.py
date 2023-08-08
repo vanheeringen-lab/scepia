@@ -358,7 +358,7 @@ class ScepiaDataset:
 
         logger.info("Processing BAM files")
         with NamedTemporaryFile() as f:
-            bed.to_csv(f.name, index=False, header=False)
+            bed.to_csv(f.name, index=False, header=False, sep="\t")
 
             # create coverage_table
             df = coverage_table(
