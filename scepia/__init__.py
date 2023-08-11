@@ -148,7 +148,12 @@ def quantile_norm(x: np.ndarray, target: Optional[np.ndarray] = None) -> np.ndar
     return np.apply_along_axis(func, 0, x)
 
 
-def weigh_distance(dist: float) -> float:
+def weigh_distance(dist: float,
+                   mu: float=-np.log(1 / 3) / 10000,
+                   promoter_width: int=5000,
+                   promoter_weight: float=1.0,
+                   base=0.0000001
+                  ) -> float:
     """Return enhancer weight based upon distance.
 
     Parameters
@@ -160,11 +165,13 @@ def weigh_distance(dist: float) -> float:
     -------
     float based on distance.
     """
-    mu = -np.log(1 / 3) / 10000
-    d = np.abs(dist) - 5000
-    d[d < 0] = 0
-    w = 2 * np.exp(-(mu * d)) / (1 + np.exp(-(mu * d)))
-    return w
+    d = np.abs(dist) - promoter_width
+    weights = np.zeros(len(d))
+    
+    weights[d <= 0] = promoter_weight
+    weights[d > 0] = 2 * np.exp(-(mu * d[d > 0])) / (1 + np.exp(-(mu * d[d > 0])))
+    weights += base
+    return weights
 
 
 def create_link_file(
