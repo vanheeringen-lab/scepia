@@ -8,6 +8,7 @@ future
 gadem
 genomepy >=0.6.1
 ghostscript
+gimmemotifs >=0.18.0
 homer
 icu=58
 jinja2
