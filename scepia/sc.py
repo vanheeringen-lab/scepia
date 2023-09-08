@@ -135,19 +135,13 @@ def annotate_with_k27(
     if center_expression:
         expression = expression.sub(expression.mean(1), 0)
 
-    # Get sampled idxs
-    N = 100000
+    # Get idxs
     unique_cell_types = adata.obs[cluster].unique()
     counts = adata.obs.groupby(cluster).count().iloc[:, 0].to_dict()
     ids = np.arange(adata.shape[0])
     idxs = []
     for cell_type in unique_cell_types:
-        if counts[cell_type] <= N:
-            idx = ids[adata.obs[cluster] == cell_type]
-        else:
-            idx = np.random.choice(
-                ids[adata.obs[cluster] == cell_type], N, replace=False
-            )
+        idx = ids[adata.obs[cluster] == cell_type]
         idxs.extend(idx)
 
     X = gene_df.loc[common_genes]
