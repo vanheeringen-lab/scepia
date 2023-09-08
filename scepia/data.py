@@ -1,4 +1,5 @@
 import os
+import sys
 from typing import Optional, List, Type, TypeVar
 
 from pathlib import Path
@@ -165,7 +166,11 @@ class ScepiaDataset:
             )
 
         if self.source:
-            df = self.source.load_reference_data(reftype=reftype, scale=False).join(df).fillna(0)
+            df = (
+                self.source.load_reference_data(reftype=reftype, scale=False)
+                .join(df)
+                .fillna(0)
+            )
 
         df = df[df.max(1) > 0]
         df = df.fillna(0)
@@ -212,10 +217,11 @@ class ScepiaDataset:
     def create(
         cls: Type[T],
         outdir: str,
-        data_files: List[str],
-        enhancer_file: str,
         annotation_file: str,
         genome: str,
+        coverage_table: Optional[str] = None,
+        enhancer_file: Optional[str] = None,
+        data_files: Optional[List[str]] = None,
         window: Optional[int] = 2000,
         anno_file: Optional[str] = None,
         anno_from: Optional[str] = None,
@@ -247,6 +253,13 @@ class ScepiaDataset:
             "version": version,
             "schema_version": __schema_version__,
         }
+        if coverage_table is None:
+            if data_files is None or enhancer_file is None:
+                logger.error(
+                    "Need to supply either coverage_table (filename to table) or"
+                )
+                logger.error("both an enhancer_file and a list of BAM files")
+            sys.exit(1)
 
         if anno_file is not None:
             if not os.path.exists(anno_file):
@@ -268,32 +281,26 @@ class ScepiaDataset:
             copyfile(gene_mapping, outdir / os.path.basename(gene_mapping))
             info["gene_mapping"] = os.path.basename(gene_mapping)
 
-        logger.info("processing gene annotation")
-        # Convert gene annotation
-        b = BedTool(annotation_file)
-        chroms = set([f.chrom for f in BedTool(enhancer_file)])
-        b = b.filter(lambda x: x.chrom in chroms)
-
-        b = (
-            b.flank(g=g.sizes_file, l=1, r=0).sort().merge(d=1000, c=4, o="distinct")
-        )  # noqa: E741
-        b.saveas(str(gene_file))
-
-        logger.info("processing data files")
-        # create coverage_table
-        df = coverage_table(
-            enhancer_file,
-            data_files,
-            window=window,
-            log_transform=True,
-            normalization="quantile",
-            ncpus=12,
-        )
+        if coverage_table is None:
+            logger.info("processing data files")
+            # create coverage_table
+            df = coverage_table(
+                enhancer_file,
+                data_files,
+                window=window,
+                log_transform=True,
+                normalization="quantile",
+                ncpus=12,
+            )
+        else:
+            df = pd.read_table(coverage_table, sep="\t", index_col=0, comment="#")
 
         df.index.rename("loc", inplace=True)
         df.reset_index().to_feather(f"{outdir}/enhancers.feather")
         np.savez(target_file, target=df.iloc[:, 0].sort_values())
-        meanstd = pd.DataFrame(index=df.index,)
+        meanstd = pd.DataFrame(
+            index=df.index,
+        )
         meanstd["mean"] = df.mean(1)
         meanstd["std"] = df.std(1)
         meanstd = meanstd.reset_index().rename(columns={"loc": "index"})
@@ -303,6 +310,20 @@ class ScepiaDataset:
         df = df.sub(df.mean(1), axis=0)
         df = df.div(df.std(1), axis=0)
         df.reset_index().to_feather(f"{outdir}/enhancers.feather")
+
+        logger.info("processing gene annotation")
+        if enhancer_file:
+            chroms = set([f.chrom for f in BedTool(enhancer_file)])
+        else:
+            chroms = df.index.str.replace(":.*$", "").unique()
+
+        # Convert gene annotation
+        b = BedTool(annotation_file)
+        b = b.filter(lambda x: x.chrom in chroms)
+        b = (
+            b.flank(g=g.sizes_file, l=1, r=0).sort().merge(d=1000, c=4, o="distinct")
+        )  # noqa: E741
+        b.saveas(str(gene_file))
 
         link = create_link_file(meanstd_file, gene_file, genome=genome)
         link.to_feather(link_file)
