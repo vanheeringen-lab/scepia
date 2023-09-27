@@ -602,11 +602,12 @@ def correlate_tf_motifs(
         index=unique_factors,
         columns=my_adata.uns["scepia"]["motif_activity"].index,
     )
-
+    
+    index_name = real.index.name or "index"
     tmp = (
         real.reset_index()
-        .melt(id_vars="index", var_name="motif", value_name="correlation")
-        .rename(columns={"index": "factor"})
+        .melt(id_vars=index_name, var_name="motif", value_name="correlation")
+        .rename(columns={index_name: "factor"})
         .set_index(["motif", "factor"])
     )
     f2m2 = f2m2.set_index(["motif", "factor"]).join(tmp).dropna()
