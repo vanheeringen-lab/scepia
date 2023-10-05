@@ -46,7 +46,7 @@ setup(
         "gimmemotifs >=0.15.2",
         "leidenalg",
         "loguru",
-        "matplotlib",
+        "matplotlib >=3.7.2",
         "numba",
         "numpy",
         "pandas",

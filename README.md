@@ -21,7 +21,7 @@ The following references can be used:
   hematopoietic cell types)
 * `Domcke.ATAC.fetal.human` - Fetal single cell-based ATAC-seq clusters from
   15 different organs ([Domcke et al 2020](http://dx.doi.org/10.1126/science.aba7612)).
-* `Cusanovich.ATAC.mouse` - ATAC-seq data of single cell-based clusters from 13
+* `Cusanovich.ATAC.adult.mouse` - ATAC-seq data of single cell-based clusters from 13
   adult mouse tissues ([Cusanovich et al, 2018](http://dx.doi.org/doi:10.1016/j.cell.2018.06.052)).
 * `ENCODE.H3K27ac.mouse` - All H3K27ac experiments from mouse ENCODE.
 
@@ -42,7 +42,7 @@ $ conda config --add channels conda-forge
 Now you can create an environment for scepia:
 
 ``` 
-conda create -n scepia scepia>=0.5.0
+conda create -n scepia "scepia>=0.5.0"
 # Note: if you want to use scepia in a Jupyter notebook, you also have to install the following packages: `ipywidgets nb_conda`.
 conda activate scepia
 ```
