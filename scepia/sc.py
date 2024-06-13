@@ -263,7 +263,7 @@ def relevant_cell_types(
     cell_types = pd.DataFrame(index=X.columns)
 
     for col in expression.columns:
-        g.fit(X, expression[col])
+        g.fit(X, expression[col], fit_intercept=False)
         coefs = pd.DataFrame(g.coef_, index=X.columns)
         cell_types[col] = coefs
 
