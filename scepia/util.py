@@ -81,13 +81,12 @@ def locate_data(dataset: str, version: Optional[float] = None) -> str:
             else:
                 raise ValueError(f"info.yaml not found in directory {datadir}")
 
-    # Data file can not be found
-    # Read the data directory from the installed module
-    # Once the github is public, it can be read from the github repo directly
+    # dataset can not be found
+    # then check if dataset can be downloaded
     install_dir = os.path.dirname(
         os.path.abspath(inspect.getfile(inspect.currentframe()))
     )
-    df = pd.read_csv(os.path.join(install_dir, "../data/data_directory.txt"), sep="\t")
+    df = pd.read_csv("https://raw.githubusercontent.com/vanheeringen-lab/scepia/master/data/data_directory.txt", sep="\t")
     df = df[df["name"] == dataset]
     if df.shape[0] > 0:
         if version is None:
